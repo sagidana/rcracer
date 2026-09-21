@@ -167,9 +167,9 @@ no menu toggle, no error dialog.
 Which server that is can be set per run, so switching does not mean rebuilding every client:
 
 ```
-RCRACE.exe -server=142.132.187.130      the hosted box (deploy/deploy.sh)
-RCRACE.exe -server=rcrace-wsl           a machine by name (tailscale MagicDNS, or any hostname)
-RCRACE.exe                              NetConfig.ServerIP, currently the tailscale node
+RCRACE.exe -server=100.92.144.44        a server on someone's own machine (tools/server.py)
+RCRACE.exe -server=rcrace-wsl           the same, by name (tailscale MagicDNS, or any hostname)
+RCRACE.exe                              NetConfig.ServerIP, the hosted box (deploy/deploy.sh)
 ```
 
 The server is authoritative: it runs a real instance of each connected player's car (the same

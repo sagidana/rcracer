@@ -1,14 +1,14 @@
 // Shared constants for the client <-> server UDP protocol.
 public static class NetConfig
 {
-    // Where a client looks for the server. Default is the tailscale node the server runs on now
-    // (tools/server.py, inside WSL); the hosted box that deploy/deploy.sh installs to is
-    // 142.132.187.130, kept written down here so switching back is a copy-paste and not a hunt.
-    public const string ServerIP = "100.92.144.44";
+    // Where a client looks for the server: the hosted box deploy/deploy.sh installs to. A server
+    // running on someone's own machine (tools/server.py, reachable over tailscale) is a -server=
+    // away, below, rather than a different build.
+    public const string ServerIP = "142.132.187.130";
     public const int ServerPort = 7777;
 
     // ...and any address at all for one run, without rebuilding every client:
-    //   RCRACE.exe -server=142.132.187.130
+    //   RCRACE.exe -server=100.92.144.44
     // which is the whole point - two players have to agree on a server, and a rebuild each is a
     // poor way to agree on anything. Clients read this through NetClient.Init.
     const string ServerFlag = "-server=";
