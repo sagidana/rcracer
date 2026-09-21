@@ -95,12 +95,16 @@ public static class NetProtocol
     // own inputs are still unconfirmed, and therefore which ones must be replayed on top of this state.
     public struct PlayerState { public byte playerId; public byte carIndex; public Vector3 pos; public Quaternion rot; public Vector3 vel; public Vector3 angVel; public uint lastAppliedSeq; }
 
-    public static byte[] WriteSnapshot(PlayerState[] players)
+    // serverTick is the server's own physics step counter, so a receiver can tell how two snapshots are
+    // ordered. UDP does not preserve order and jitter reorders packets routinely, so without it a
+    // snapshot that overtook a newer one would be treated as the current truth.
+    public static byte[] WriteSnapshot(PlayerState[] players, uint serverTick)
     {
         using (MemoryStream ms = new MemoryStream())
         using (BinaryWriter w = new BinaryWriter(ms))
         {
             w.Write(MsgSnapshot);
+            w.Write(serverTick);
             w.Write((byte)players.Length);
             foreach (PlayerState p in players)
             {
@@ -116,8 +120,9 @@ public static class NetProtocol
         }
     }
 
-    public static PlayerState[] ReadSnapshot(BinaryReader r)
+    public static PlayerState[] ReadSnapshot(BinaryReader r, out uint serverTick)
     {
+        serverTick = r.ReadUInt32();
         int n = r.ReadByte();
         PlayerState[] result = new PlayerState[n];
         for (int i = 0; i < n; i++)

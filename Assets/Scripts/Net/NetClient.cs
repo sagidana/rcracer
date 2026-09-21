@@ -55,6 +55,8 @@ public class NetClient : MonoBehaviour
     // the most recent snapshot naming this player, used by ReconcileTick every frame rather than
     // correcting once on arrival - see ReconcileTick for why
     bool haveServerState;
+    uint lastServerTick;
+    bool haveServerTick;
     Vector3 lastServerPos;
     Quaternion lastServerRot = Quaternion.identity;
     Vector3 lastServerVel;
@@ -62,6 +64,13 @@ public class NetClient : MonoBehaviour
     float lastServerSnapshotTime;
 
     readonly Dictionary<byte, RemoteCarView> remotes = new Dictionary<byte, RemoteCarView>();
+
+    // DIAG
+    public float LastCorrectionDistance;
+    public int LastReplayTicks;
+    public float WorstCorrection;
+    public int WorstCorrectionTicks;
+    public readonly List<string> CorrectionLog = new List<string>();
 
     // the isolated physics world the unconfirmed ticks are re-simulated in (see NetPredictor)
     NetPredictor predictor;
@@ -234,7 +243,18 @@ public class NetClient : MonoBehaviour
                     Debug.Log("NetClient: connected as player " + playerId);
                     break;
                 case NetProtocol.MsgSnapshot:
-                    ApplySnapshot(NetProtocol.ReadSnapshot(r));
+                    uint serverTick;
+                    NetProtocol.PlayerState[] states = NetProtocol.ReadSnapshot(r, out serverTick);
+                    // UDP does not keep order and jitter reorders packets routinely. An overtaken
+                    // snapshot describes an older moment than one already applied: taking it as the
+                    // current truth would reconcile against a stale state while the inputs matching it
+                    // have already been acknowledged and dropped, replaying too few ticks and landing
+                    // the car short by whatever it travelled in between (measured: a consistent ~1.4m
+                    // at 27 m/s, one snapshot interval's worth).
+                    if (haveServerTick && serverTick <= lastServerTick) break;
+                    lastServerTick = serverTick;
+                    haveServerTick = true;
+                    ApplySnapshot(states);
                     break;
                 case NetProtocol.MsgPlayerLeft:
                     byte left = r.ReadByte();
@@ -327,6 +347,11 @@ public class NetClient : MonoBehaviour
 
         float dist = Vector3.Distance(localRb.position, pos);
         float angle = Quaternion.Angle(localRb.rotation, rot);
+        LastCorrectionDistance = dist;
+        LastReplayTicks = unconfirmed.Count;
+        if (dist > WorstCorrection) { WorstCorrection = dist; WorstCorrectionTicks = unconfirmed.Count; }
+        CorrectionLog.Add(dist.ToString("F3") + "m ticks=" + unconfirmed.Count + " speed=" + localRb.linearVelocity.magnitude.ToString("F1"));
+        if (CorrectionLog.Count > 400) CorrectionLog.RemoveAt(0);
         if (dist <= NetConfig.ReplayDeadZone && angle <= NetConfig.ReplayDeadZoneAngle) return;
 
         localRb.position = pos;
