@@ -26,6 +26,8 @@ public class NetClient : MonoBehaviour
     bool welcomed;
     bool gaveUp;   // tried and failed to reach the server; OnGUI shows this so "offline" is never just a guess
     byte serverVersion;   // the wire version the server reported when it turned this build away, 0 = it did not
+    string serverTrack;   // the track the server hosts, when it turned this build away for being on another one
+    string localTrack;    // the track this player is driving in, sent in Hello so the server can check it
     bool reconnecting;    // was welcomed once and lost the server since (see KeepAlive)
     float lastSnapshotAt = -99f;
     byte playerId;
@@ -99,6 +101,9 @@ public class NetClient : MonoBehaviour
     public void Init(GameObject car, int carIndex, string serverIp)
     {
         localCar = car;
+        // the scene this component lives in, not the active one: the predictor creates a scene of its
+        // own a few lines below, and the track is what the server needs to hear about
+        localTrack = gameObject.scene.name;
         localInput = car.GetComponent<CarInput>();
         localRb = car.GetComponent<Rigidbody>();
         localCarIndex = (byte)carIndex;
@@ -163,7 +168,7 @@ public class NetClient : MonoBehaviour
             if (Time.time - lastHelloSent > 0.5f)
             {
                 lastHelloSent = Time.time;
-                Send(NetProtocol.WriteHello(localCarIndex));
+                Send(NetProtocol.WriteHello(localCarIndex, localTrack));
             }
             return;
         }
@@ -332,6 +337,15 @@ public class NetClient : MonoBehaviour
                     serverVersion = r.ReadByte();
                     Debug.LogError("NetClient: version mismatch - this build speaks net " + NetProtocol.Version
                         + ", the server speaks net " + serverVersion + ". Pull and rebuild (" + GameVersion.Line + ").");
+                    Shutdown();
+                    break;
+                case NetProtocol.MsgTrackMismatch:
+                    // Not an error, just a different track: this server instance hosts one, and every
+                    // position it sends belongs to that one. Joining anyway is what put the car 2.5km
+                    // out in the open with the track a speck on the horizon.
+                    serverTrack = r.ReadString();
+                    Debug.LogWarning("NetClient: the server hosts " + NetProtocol.PrettyTrack(serverTrack)
+                        + " and this player is on " + NetProtocol.PrettyTrack(localTrack) + " - playing offline.");
                     Shutdown();
                     break;
                 case NetProtocol.MsgPong:
@@ -530,6 +544,7 @@ public class NetClient : MonoBehaviour
     {
         string status;
         if (serverVersion != 0) status = "Offline - version mismatch: this build speaks net " + NetProtocol.Version + ", the server speaks net " + serverVersion + ". Pull and rebuild.";
+        else if (serverTrack != null) status = "Offline (solo) - the server is hosting " + NetProtocol.PrettyTrack(serverTrack) + ", you are on " + NetProtocol.PrettyTrack(localTrack);
         else if (gaveUp) status = "Offline (solo) - could not reach the server";
         else if (reconnecting) status = "Reconnecting...";
         else if (welcomed) status = "Online - " + (remotes.Count + 1) + " car(s)" + (smoothedRttMs >= 0f ? " - " + smoothedRttMs.ToString("0") + " ms" : " - measuring ping...");

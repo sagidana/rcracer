@@ -15,6 +15,7 @@ public static class NetProtocol
     public const byte MsgPing = 6;         // client -> server: "what's my round trip time?" (echo this back unchanged)
     public const byte MsgPong = 7;         // server -> client: echo of a Ping's payload
     public const byte MsgVersionMismatch = 8;   // server -> client: "your build does not speak my wire format"
+    public const byte MsgTrackMismatch = 9;     // server -> client: "I am not hosting the track you are on"
 
     // The wire format's own version. BUMP IT in the same commit as any change to what the messages
     // below contain - a field added to a snapshot shifts every field after it, so a client one
@@ -22,9 +23,9 @@ public static class NetProtocol
     // serverTick byte as a player count, a throttle byte as a player id). That failure is silent
     // and looks exactly like a netcode bug: both players connect, neither can see the other. The
     // server checks this at Hello and turns such a client away instead of letting it join blind.
-    public const byte Version = 1;
+    public const byte Version = 2;
 
-    public static byte[] WriteHello(byte carIndex)
+    public static byte[] WriteHello(byte carIndex, string track)
     {
         using (MemoryStream ms = new MemoryStream())
         using (BinaryWriter w = new BinaryWriter(ms))
@@ -32,11 +33,16 @@ public static class NetProtocol
             w.Write(MsgHello);
             w.Write(carIndex);
             w.Write(Version);
+            w.Write(track);
             return ms.ToArray();
         }
     }
 
-    public struct Hello { public byte carIndex; public byte version; }
+    // track is the scene the player is driving in, e.g. "Track_Street". A server instance hosts exactly
+    // one of them, and the snapshots it sends are positions in THAT track: a client on another one is
+    // not a player it can place, it is a car about to be dragged a couple of kilometres sideways into
+    // empty space (measured: 2495m, from the Desert spawn to the Street one).
+    public struct Hello { public byte carIndex; public byte version; public string track; }
 
     // Hello is the only message an out-of-date client is allowed to be wrong about, so the version byte
     // lives at the END of it: builds from before versioning existed send just the car index, and rather
@@ -48,7 +54,9 @@ public static class NetProtocol
         Hello h;
         h.carIndex = r.ReadByte();
         h.version = 0;
+        h.track = "";
         if (r.BaseStream.Position < r.BaseStream.Length) h.version = r.ReadByte();
+        if (r.BaseStream.Position < r.BaseStream.Length) h.track = r.ReadString();
         return h;
     }
 
@@ -185,6 +193,24 @@ public static class NetProtocol
             result[i] = p;
         }
         return result;
+    }
+
+    public static byte[] WriteTrackMismatch(string serverTrack)
+    {
+        using (MemoryStream ms = new MemoryStream())
+        using (BinaryWriter w = new BinaryWriter(ms))
+        {
+            w.Write(MsgTrackMismatch);
+            w.Write(serverTrack);
+            return ms.ToArray();
+        }
+    }
+
+    // "Track_Street" -> "Street": what the menu calls it, which is what a player can act on
+    public static string PrettyTrack(string sceneName)
+    {
+        if (sceneName != null && sceneName.StartsWith("Track_")) return sceneName.Substring("Track_".Length);
+        return sceneName;
     }
 
     public static byte[] WritePlayerLeft(byte playerId)

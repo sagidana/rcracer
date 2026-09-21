@@ -55,13 +55,18 @@ public class NetServer : MonoBehaviour
     float lastSnapshot = -99f;
     uint serverTick;   // physics steps taken, stamped on every snapshot so clients can order them
 
+    // the track this instance hosts: the scene RaceBootstrap added this component in, which ServerBoot
+    // picked from -track= at startup
+    string hostedTrack;
+
     void Start()
     {
+        hostedTrack = gameObject.scene.name;
         try
         {
             socket = new UdpClient(NetConfig.ServerPort);
             socket.BeginReceive(OnReceive, null);
-            Debug.Log("NetServer: " + GameVersion.Line + " listening on UDP " + NetConfig.ServerPort);
+            Debug.Log("NetServer: " + GameVersion.Line + " hosting " + hostedTrack + ", listening on UDP " + NetConfig.ServerPort);
         }
         catch (Exception e)
         {
@@ -206,6 +211,15 @@ public class NetServer : MonoBehaviour
                         RefuseVersion(from, hello.version);
                         break;
                     }
+                    // One server instance hosts one track (-track=, see ServerBoot), and everything it
+                    // sends is a position in that track. Letting a player on another one join put their
+                    // car 2.5km from anything, in a track they were not looking at, the moment the
+                    // first correction landed - so they are told, and play offline instead.
+                    if (hello.track != hostedTrack)
+                    {
+                        RefuseTrack(from, hello.track);
+                        break;
+                    }
                     Player p;
                     if (!byEndpoint.TryGetValue(key, out p)) p = Spawn(from, hello.carIndex);
                     p.lastSeen = Time.time;
@@ -240,6 +254,14 @@ public class NetServer : MonoBehaviour
     // its whole connect timeout, and the log is how the person running the server finds out someone is
     // on an old build at all.
     readonly HashSet<string> refused = new HashSet<string>();
+
+    void RefuseTrack(IPEndPoint from, string clientTrack)
+    {
+        SendTo(from, NetProtocol.WriteTrackMismatch(hostedTrack));
+        if (refused.Add(from.ToString()))
+            Debug.LogWarning("NetServer: refused " + from + " - they are on " + NetProtocol.PrettyTrack(clientTrack)
+                + ", this server hosts " + NetProtocol.PrettyTrack(hostedTrack) + ".");
+    }
 
     void RefuseVersion(IPEndPoint from, byte clientVersion)
     {

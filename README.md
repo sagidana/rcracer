@@ -210,12 +210,27 @@ input to apply, repeats the last controls it saw on a third of its steps without
 and the client's unconfirmed buffer never drains - every snapshot then lands as a correction, which
 plays as constant rubber-banding.
 
+### One server, one track
+
+A server instance hosts exactly one track (`-track=`, see below) and every position it sends is a
+position in that track. The client names its own track in its Hello and a server hosting a different
+one turns it away, so the status line reads
+
+```
+Offline (solo) - the server is hosting Street, you are on Desert
+```
+
+Before that check existed the join succeeded and the first correction dragged the car to the other
+track's coordinates - 2495m from the Desert spawn to the Street one, which on screen is the track
+disappearing and the car sitting in empty ground. To race together, pick the track the server hosts
+(or host another instance for the other track).
+
 ### Versions: are we on the same build?
 
 The menu (bottom left) and the in-race status line both show the same string:
 
 ```
-v2026-09-21.0e3e12e (net 1)
+v2026-09-21.0e3e12e (net 2)
 ```
 
 * the first part is the commit the build was made from (`+edits` if the tree was dirty). `BuildScript`
