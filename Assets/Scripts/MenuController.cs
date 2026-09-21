@@ -6,6 +6,7 @@ using UnityEngine.UI;
 // The start menu: pick a car and a track, press Play.
 // The chosen car turns slowly on the podium behind the UI (a prefab instance with its physics switched off).
 // Keyboard: left/right = car, up/down = track, Enter or Space = play. The buttons do the same with the mouse.
+// Gamepad: d-pad or left stick = choose, Cross (A) or Options = play.
 public class MenuController : MonoBehaviour
 {
     public Text carLabel;
@@ -17,6 +18,7 @@ public class MenuController : MonoBehaviour
     int carIndex;
     int trackIndex;
     GameObject shown;
+    Vector2 lastStick;
 
     void Start()
     {
@@ -85,11 +87,26 @@ public class MenuController : MonoBehaviour
         if (carStage != null) carStage.Rotate(Vector3.up, turnSpeed * Time.deltaTime, Space.World);
 
         Keyboard kb = Keyboard.current;
-        if (kb == null) return;
-        if (kb.leftArrowKey.wasPressedThisFrame || kb.aKey.wasPressedThisFrame) PrevCar();
-        if (kb.rightArrowKey.wasPressedThisFrame || kb.dKey.wasPressedThisFrame) NextCar();
-        if (kb.upArrowKey.wasPressedThisFrame || kb.wKey.wasPressedThisFrame) PrevTrack();
-        if (kb.downArrowKey.wasPressedThisFrame || kb.sKey.wasPressedThisFrame) NextTrack();
-        if (kb.enterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame) Play();
+        if (kb != null)
+        {
+            if (kb.leftArrowKey.wasPressedThisFrame || kb.aKey.wasPressedThisFrame) PrevCar();
+            if (kb.rightArrowKey.wasPressedThisFrame || kb.dKey.wasPressedThisFrame) NextCar();
+            if (kb.upArrowKey.wasPressedThisFrame || kb.wKey.wasPressedThisFrame) PrevTrack();
+            if (kb.downArrowKey.wasPressedThisFrame || kb.sKey.wasPressedThisFrame) NextTrack();
+            if (kb.enterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame) Play();
+        }
+
+        Gamepad gp = Gamepad.current;
+        if (gp == null) return;
+        // the stick works like a d-pad: one step per flick
+        Vector2 stick = gp.leftStick.ReadValue();
+        bool flickLeft = stick.x < -0.6f && lastStick.x >= -0.6f, flickRight = stick.x > 0.6f && lastStick.x <= 0.6f;
+        bool flickUp = stick.y > 0.6f && lastStick.y <= 0.6f, flickDown = stick.y < -0.6f && lastStick.y >= -0.6f;
+        lastStick = stick;
+        if (gp.dpad.left.wasPressedThisFrame || flickLeft) PrevCar();
+        if (gp.dpad.right.wasPressedThisFrame || flickRight) NextCar();
+        if (gp.dpad.up.wasPressedThisFrame || flickUp) PrevTrack();
+        if (gp.dpad.down.wasPressedThisFrame || flickDown) NextTrack();
+        if (gp.buttonSouth.wasPressedThisFrame || gp.startButton.wasPressedThisFrame) Play();
     }
 }

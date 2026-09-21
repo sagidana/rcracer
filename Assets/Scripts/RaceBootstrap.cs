@@ -3,7 +3,7 @@ using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 
 // Lives in every track scene. When the scene starts it spawns the chosen car prefab at the SpawnPoint
-// and points the camera at it. Esc goes back to the menu.
+// and points the camera at it. Esc (or the gamepad's Options button) goes back to the menu.
 // (Track scenes contain no car: the car comes from Assets/Resources/Cars/<name>.prefab.)
 public class RaceBootstrap : MonoBehaviour
 {
@@ -41,7 +41,9 @@ public class RaceBootstrap : MonoBehaviour
     void Update()
     {
         Keyboard kb = Keyboard.current;
-        if (kb == null || !kb.escapeKey.wasPressedThisFrame) return;
+        Gamepad gp = Gamepad.current;
+        bool back = (kb != null && kb.escapeKey.wasPressedThisFrame) || (gp != null && gp.startButton.wasPressedThisFrame);   // Esc or Options
+        if (!back) return;
         if (Application.CanStreamedLevelBeLoaded(GameSelection.MenuScene))
             SceneManager.LoadScene(GameSelection.MenuScene);
     }
