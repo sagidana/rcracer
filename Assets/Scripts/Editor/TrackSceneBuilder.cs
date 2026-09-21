@@ -68,7 +68,7 @@ public static class TrackSceneBuilder
         Debug.Log("Track scene saved: " + path);
     }
 
-    static void UpdateBuildSettings()
+    public static void UpdateBuildSettings()
     {
         List<EditorBuildSettingsScene> list = new List<EditorBuildSettingsScene>();
         if (File.Exists(MenuScenePath)) list.Add(new EditorBuildSettingsScene(MenuScenePath, true));
