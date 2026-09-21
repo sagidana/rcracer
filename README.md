@@ -7,11 +7,20 @@ Arcade RC-car racing game made with **Unity 6 (6000.3.24f1)**, Universal Render 
 ```
 .
 ├── Assets/
-│   ├── Scenes/SampleScene.unity      the one playable scene (Car, Ground, TestTrack, StreetTrack, camera, light, volume)
+│   ├── Scenes/                       Menu (car + track select), Track_Street, Track_Desert, Track_Test,
+│   │                                 Server (scene 0 of the dedicated server build), SampleScene (legacy)
+│   ├── Resources/Cars/               the car prefabs the menu and the server both load by name
 │   ├── Scripts/                      runtime code (ships in the .exe)
-│   │   ├── CarInput.cs               keyboard -> Throttle / Steer / Handbrake / Reset. Knows nothing about physics.
+│   │   ├── CarInput.cs               keyboard / gamepad -> Throttle / Steer / Handbrake / Reset, or the network
+│   │   │                             (SetNetworkInput) for a car the server or a replay drives
 │   │   ├── CarController.cs          the car: 4 wheels, spring+damper suspension via sphere casts, drive/brake/side grip.
-│   │   │                             Reads CarInput, runs only in FixedUpdate.
+│   │   │                             Reads CarInput. Tick(dt) is the whole physics step, so a replay can drive it
+│   │   │                             by hand instead of waiting for FixedUpdate.
+│   │   ├── GameSelection.cs          what the menu chose (car, track), shared across scene loads
+│   │   ├── MenuController.cs         the menu: pick a car and a track, or quit
+│   │   ├── RaceBootstrap.cs          in every track scene: spawns the car, wires the camera, adds NetClient -
+│   │   │                             or NetServer instead when this is a dedicated server build
+│   │   ├── ServerBoot.cs             dedicated server entry point: reads -track= and loads that scene
 │   │   ├── CarTuning.cs              the inspector foldouts of CarController (Body, Suspension, Drive, Steering,
 │   │   │                             Grip, Collision, Props, Debug) - every tunable number lives here
 │   │   ├── CarWheel.cs               one physics wheel (mount point + current contact). Plain class, owned by CarController.
@@ -20,6 +29,16 @@ Arcade RC-car racing game made with **Unity 6 (6000.3.24f1)**, Universal Render 
 │   │   ├── SpeedDisplay.cs           km/h text in the corner (OnGUI)
 │   │   ├── KnockableProp.cs          light cones / trash cans / mailboxes that fly away and return home
 │   │   ├── CarController_Old.cs      backup of the earlier "sliding box" car. Disabled, kept for reference.
+│   │   ├── Net/                      online play (see the Multiplayer section for how it fits together)
+│   │   │   ├── NetConfig.cs              server address and port, rates, reconciliation constants
+│   │   │   ├── NetProtocol.cs            the wire format: one tag byte, then hand-packed fields
+│   │   │   ├── NetClient.cs              sends this player's input ticks, applies corrections, shows the status line
+│   │   │   ├── NetServer.cs              authoritative: one real car per player, one input tick per physics step
+│   │   │   ├── NetPredictor.cs           a duplicate of the track in its own PhysicsScene, where the client
+│   │   │   │                             re-simulates its unconfirmed input after a correction
+│   │   │   ├── RemoteCarView.cs          other players: a visual body following the server's snapshots
+│   │   │   └── NetSim.cs                 test-only: fake latency and jitter, so netcode bugs can be
+│   │   │                                 reproduced and measured locally instead of guessed at
 │   │   └── Editor/                   editor-only tools, all under the Tools menu (not in the .exe)
 │   │       ├── RaceSceneSetup.cs         Tools > Setup Race Scene         flat ground + box car from scratch
 │   │       ├── CarPhysicsSetup.cs        Tools > Apply New Car Physics   wires CarController + wheels on the Car
@@ -32,6 +51,12 @@ Arcade RC-car racing game made with **Unity 6 (6000.3.24f1)**, Universal Render 
 │   │       ├── StreetTrackProps.cs           big props: parked cars, bins, mailboxes, cones
 │   │       ├── StreetTrackKnockProps.cs      the small knockable props (uses KnockableProp)
 │   │       ├── StreetTrackGeometry.cs        mesh helpers, colour palette, batching
+│   │       ├── DesertTrackBuilder.cs     Tools > Build Desert Track      the second track
+│   │       ├── MenuSceneBuilder.cs       Tools > Build Menu Scene
+│   │       ├── TrackSceneBuilder.cs      Tools > Build Track Scenes
+│   │       ├── ServerSceneBuilder.cs     Tools > Server > Build Server Scene
+│   │       ├── CarPrefabBuilder.cs       Tools > Cars > Build Car Prefabs  writes Resources/Cars/*.prefab
+│   │       ├── LightingPreset.cs         the shared lighting/post setup every track scene applies
 │   │       ├── PropPhysicsTool.cs        Tools > Make Props Knockable
 │   │       ├── PhysicsTestObstacles.cs   Tools > Add Physics Test Obstacles   bumps / steps / wall to test suspension
 │   │       └── BuildScript.cs            Tools > Build > Windows (x64), and the entry point of build.sh / build.bat
@@ -41,6 +66,10 @@ Arcade RC-car racing game made with **Unity 6 (6000.3.24f1)**, Universal Render 
 ├── Packages/manifest.json            Unity packages (URP 17.3, Input System 1.20, ...) - Unity keeps this in sync
 ├── ProjectSettings/                  project-wide settings: physics, quality, tags, input, build scenes, editor version
 ├── build.sh / build.bat              headless Windows build from WSL/Linux or Windows -> Build/Windows/RCRACE.exe
+├── deploy/                           builds the Linux server and installs it as a systemd service over ssh
+│   ├── deploy.sh                         build + upload + restart, all in one
+│   ├── remote_install.sh                 what runs on the server itself
+│   └── rcracer-server.service            the systemd unit
 └── .gitignore / .gitattributes       what stays out of git; line-ending rules
 ```
 
@@ -131,12 +160,29 @@ a few seconds, the game just carries on offline - no menu toggle, no error dialo
 
 The server is authoritative: it runs a real instance of each connected player's car (the same
 `CarController` physics as the client, fed by network input instead of a keyboard) and is the only place
-player-vs-player and player-vs-track collisions are actually resolved. Each client predicts its own car
-locally for immediate response, and snaps to the server's position if it ever drifts too far (see
-`NetClient.Reconcile` / `NetConfig.ReconcileDistance`) - normal driving does not trigger this, only a
-real disagreement (typically a collision the two sides resolved differently) does. Other players are
-purely visual on your screen (`RemoteCarView`): their car moves by interpolating the server's snapshots,
-with no local collider, since only the server's copy of them is real.
+player-vs-player and player-vs-track collisions are actually resolved. Other players are purely visual on
+your screen (`RemoteCarView`): their car moves by interpolating the server's snapshots, with no local
+collider, since only the server's copy of them is real.
+
+Your own car is predicted locally so it responds the instant you press a key, and corrected by replaying
+input rather than by guessing:
+
+- The client samples its controls **once per physics tick**, numbers each one, and keeps every tick the
+  server has not acknowledged yet. Packets go out 30 times a second but carry the last 12 ticks, so a
+  lost packet is backfilled by the next one instead of leaving a hole in the server's input stream.
+- The server applies **exactly one input tick per physics step** and reports which tick it last applied
+  in every snapshot. It keeps a small queue to absorb jitter, actively drained toward 2 ticks, since
+  depth beyond what late packets actually need is just added lag.
+- When a snapshot arrives, the client resets a hidden copy of its car (`NetPredictor`, a duplicate of the
+  track's static geometry in its own hand-stepped `PhysicsScene`) to the server's verified state and
+  re-simulates every unconfirmed tick on it. That result is not an estimate of where the car should be,
+  it is where the car *would* be, computed the same way the server computed its half.
+- The corrected velocity and heading are taken immediately; the remaining position difference is fed in
+  over `NetConfig.CorrectionSmoothing`, so a correction reads as the car settling rather than teleporting.
+
+Measured driving at full throttle with continuous weaving, the worst single-frame movement the car's own
+velocity does not account for is 0.34m at 60ms round trip and 0.29m at 250ms, against 0.24m for the same
+driving with no networking at all. Standing still while connected, the car does not move at all.
 
 ### Running the server
 
