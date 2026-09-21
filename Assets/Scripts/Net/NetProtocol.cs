@@ -93,7 +93,11 @@ public static class NetProtocol
     // lastAppliedSeq is the acknowledgement: the last input tick the server had actually applied to this
     // player's car when it took this snapshot. The owning client uses it to know exactly which of its
     // own inputs are still unconfirmed, and therefore which ones must be replayed on top of this state.
-    public struct PlayerState { public byte playerId; public byte carIndex; public Vector3 pos; public Quaternion rot; public Vector3 vel; public Vector3 angVel; public uint lastAppliedSeq; }
+    // throttle/steer/handbrake are the controls the server last applied to THIS player. Every other
+    // client needs them: its prediction has to carry that player forward through the replay window,
+    // and a car assumed to be coasting straight while it is really steering turns a near miss into a
+    // collision that never happened - a correction as violent as the one prediction exists to avoid.
+    public struct PlayerState { public byte playerId; public byte carIndex; public Vector3 pos; public Quaternion rot; public Vector3 vel; public Vector3 angVel; public uint lastAppliedSeq; public float throttle, steer; public bool handbrake; }
 
     // serverTick is the server's own physics step counter, so a receiver can tell how two snapshots are
     // ordered. UDP does not preserve order and jitter reorders packets routinely, so without it a
@@ -115,6 +119,9 @@ public static class NetProtocol
                 WriteVector3(w, p.vel);
                 WriteVector3(w, p.angVel);
                 w.Write(p.lastAppliedSeq);
+                w.Write(p.throttle);
+                w.Write(p.steer);
+                w.Write(p.handbrake);
             }
             return ms.ToArray();
         }
@@ -135,6 +142,9 @@ public static class NetProtocol
             p.vel = ReadVector3(r);
             p.angVel = ReadVector3(r);
             p.lastAppliedSeq = r.ReadUInt32();
+            p.throttle = r.ReadSingle();
+            p.steer = r.ReadSingle();
+            p.handbrake = r.ReadBoolean();
             result[i] = p;
         }
         return result;

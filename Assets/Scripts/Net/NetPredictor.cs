@@ -22,6 +22,23 @@ public class NetPredictor : MonoBehaviour
     Rigidbody shadowRb;
     public bool Ready { get; private set; }
 
+    // Stand-ins for the other players, so a replay can see them. Without these the client predicts
+    // driving straight through another car while the server bounces both of them apart, and the
+    // correction that follows is a whole collision's worth of disagreement arriving at once.
+    class Ghost
+    {
+        public GameObject go;
+        public Rigidbody rb;
+        public CarController controller;
+        public CarInput input;
+        public Vector3 pos, vel, angVel;
+        public Quaternion rot;
+        public float throttle, steer;
+        public bool handbrake;
+        public bool seenThisSnapshot;
+    }
+    readonly Dictionary<byte, Ghost> ghosts = new Dictionary<byte, Ghost>();
+
     public void Setup(GameObject carPrefab)
     {
         shadowScene = SceneManager.CreateScene("NetPredictorShadow_" + GetEntityId(), new CreateSceneParameters(LocalPhysicsMode.Physics3D));
@@ -106,6 +123,65 @@ public class NetPredictor : MonoBehaviour
         }
     }
 
+    // Tells the replay where another player was as of the snapshot being reconciled against. Their
+    // state comes from the same snapshot as our own baseline, so everyone starts the replay consistent
+    // with everyone else - which is the whole point: it is the same moment the server simulated from.
+    public void SetRemote(byte playerId, GameObject carPrefab, Vector3 pos, Quaternion rot, Vector3 vel, Vector3 angVel,
+        float throttle, float steer, bool handbrake)
+    {
+        Ghost g;
+        if (!ghosts.TryGetValue(playerId, out g))
+        {
+            if (carPrefab == null) return;
+            g = new Ghost();
+            g.go = Instantiate(carPrefab);
+            SceneManager.MoveGameObjectToScene(g.go, shadowScene);
+            g.go.name = "ShadowRemote" + playerId;
+            foreach (Renderer r in g.go.GetComponentsInChildren<Renderer>(true)) r.enabled = false;
+            foreach (Behaviour b in g.go.GetComponentsInChildren<Behaviour>(true))
+                if (b is CarWheelVisuals || b is SpeedDisplay) b.enabled = false;
+            g.rb = g.go.GetComponent<Rigidbody>();
+            g.controller = g.go.GetComponent<CarController>();
+            g.input = g.go.GetComponent<CarInput>();
+            if (g.controller != null)
+            {
+                g.controller.RefreshPhysicsScene();
+                g.controller.InitializePhysics();
+                g.controller.collision.cameraShake = 0f;
+                g.controller.enabled = false;   // driven by Replay, exactly like the shadow car
+            }
+            if (g.input != null) g.input.NetworkControlled = true;
+            ghosts[playerId] = g;
+        }
+        g.pos = pos;
+        g.rot = rot;
+        g.vel = vel;
+        g.angVel = angVel;
+        g.throttle = throttle;
+        g.steer = steer;
+        g.handbrake = handbrake;
+        g.seenThisSnapshot = true;
+    }
+
+    // Drops stand-ins for players who were not in the latest snapshot. Called once per snapshot, after
+    // every SetRemote for it, so "not seen" means they are genuinely no longer in the race.
+    public void DropUnseenRemotes()
+    {
+        List<byte> gone = null;
+        foreach (KeyValuePair<byte, Ghost> kv in ghosts)
+        {
+            if (kv.Value.seenThisSnapshot) { kv.Value.seenThisSnapshot = false; continue; }
+            if (gone == null) gone = new List<byte>();
+            gone.Add(kv.Key);
+        }
+        if (gone == null) return;
+        foreach (byte id in gone)
+        {
+            if (ghosts[id].go != null) Destroy(ghosts[id].go);
+            ghosts.Remove(id);
+        }
+    }
+
     // Resets the shadow car to (pos, rot, vel, angVel) - the server's last verified state - then steps
     // it forward once per entry in `inputs` (oldest first), applying that entry's controls before each
     // step. Returns what the car's state should be right now, given that baseline plus everything
@@ -127,12 +203,30 @@ public class NetPredictor : MonoBehaviour
         // direction the shadow car last faced instead of the direction it was just reset to.
         shadowCar.transform.SetPositionAndRotation(pos, rot);
 
+        foreach (KeyValuePair<byte, Ghost> kv in ghosts)
+        {
+            Ghost g = kv.Value;
+            if (g.rb == null) continue;
+            g.rb.position = g.pos;
+            g.rb.rotation = g.rot;
+            g.rb.linearVelocity = g.vel;
+            g.rb.angularVelocity = g.angVel;
+            g.go.transform.SetPositionAndRotation(g.pos, g.rot);
+            // held at whatever the server last applied for them. Their inputs for the replay window
+            // itself have not reached the server yet, let alone us, so holding the last known controls
+            // is the best available guess - and a far better one than assuming they let go of
+            // everything, which turns any near miss into a collision that never happened.
+            if (g.input != null) g.input.SetNetworkInput(g.throttle, g.steer, g.handbrake, false);
+        }
+
         foreach (NetProtocol.InputSample s in inputs)
         {
             shadowInput.SetNetworkInput(s.throttle, s.steer, s.handbrake, s.reset);
             // manually stepping this scene never triggers Unity's automatic FixedUpdate loop, so the
             // car's own physics step (wheel forces, suspension, ...) has to be invoked by hand too
             shadowController.Tick(fixedDt);
+            foreach (KeyValuePair<byte, Ghost> kv in ghosts)
+                if (kv.Value.controller != null) kv.Value.controller.Tick(fixedDt);
             shadowPhysics.Simulate(fixedDt);
         }
 
@@ -144,6 +238,8 @@ public class NetPredictor : MonoBehaviour
 
     void OnDestroy()
     {
+        foreach (KeyValuePair<byte, Ghost> kv in ghosts) if (kv.Value.go != null) Destroy(kv.Value.go);
+        ghosts.Clear();
         if (shadowCar != null) Destroy(shadowCar);
         if (shadowScene.IsValid()) SceneManager.UnloadSceneAsync(shadowScene);
     }

@@ -29,6 +29,8 @@ public class NetServer : MonoBehaviour
         // input ticks received but not yet stepped, oldest first. Kept in tick order so the car is
         // driven through exactly the sequence the player actually held, one tick per physics step.
         public readonly SortedDictionary<uint, NetProtocol.InputSample> pending = new SortedDictionary<uint, NetProtocol.InputSample>();
+        public float lastThrottle, lastSteer;   // what was last applied, echoed to the other clients
+        public bool lastHandbrake;
         public int minPending = int.MaxValue;   // shallowest the queue got since the last drain check
         public float nextDrainCheck;
     }
@@ -127,6 +129,9 @@ public class NetServer : MonoBehaviour
         NetProtocol.InputSample s = p.pending[next];
         p.pending.Remove(next);
         p.lastAppliedSeq = next;
+        p.lastThrottle = s.throttle;
+        p.lastSteer = s.steer;
+        p.lastHandbrake = s.handbrake;
         p.input.SetNetworkInput(s.throttle, s.steer, s.handbrake, s.reset);
     }
 
@@ -306,6 +311,9 @@ public class NetServer : MonoBehaviour
                 vel = p.rb.linearVelocity,
                 angVel = p.rb.angularVelocity,
                 lastAppliedSeq = p.lastAppliedSeq,
+                throttle = p.lastThrottle,
+                steer = p.lastSteer,
+                handbrake = p.lastHandbrake,
             });
         }
         if (live.Count == 0) return;

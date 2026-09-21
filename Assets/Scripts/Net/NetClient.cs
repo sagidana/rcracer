@@ -308,7 +308,20 @@ public class NetClient : MonoBehaviour
             }
             if (view != null) view.SetTarget(p.pos, p.rot, p.vel, p.angVel);
             remoteLastSeen[p.playerId] = Time.time;
+
+            // the replay needs them too: predicting a race where everyone else is intangible means
+            // every contact with another player arrives later as a correction instead of happening
+            if (predictor != null && predictor.Ready)
+                predictor.SetRemote(p.playerId, RemotePrefab(p.carIndex), p.pos, p.rot, p.vel, p.angVel,
+                    p.throttle, p.steer, p.handbrake);
         }
+        if (predictor != null && predictor.Ready) predictor.DropUnseenRemotes();
+    }
+
+    static GameObject RemotePrefab(byte carIndex)
+    {
+        int i = Mathf.Clamp(carIndex, 0, GameSelection.Cars.Length - 1);
+        return Resources.Load<GameObject>(GameSelection.CarResourceFolder + "/" + GameSelection.Cars[i]);
     }
 
     // Everything the server has now stepped is settled history: its result is baked into the snapshot
@@ -410,8 +423,7 @@ public class NetClient : MonoBehaviour
 
     RemoteCarView SpawnRemote(byte carIndex)
     {
-        int i = Mathf.Clamp(carIndex, 0, GameSelection.Cars.Length - 1);
-        GameObject prefab = Resources.Load<GameObject>(GameSelection.CarResourceFolder + "/" + GameSelection.Cars[i]);
+        GameObject prefab = RemotePrefab(carIndex);
         if (prefab == null) return null;
 
         GameObject go = Instantiate(prefab);
