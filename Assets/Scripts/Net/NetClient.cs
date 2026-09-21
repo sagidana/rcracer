@@ -29,6 +29,9 @@ public class NetClient : MonoBehaviour
     float connectStart;
     float lastHelloSent = -99f;
     float lastInputSent = -99f;
+    uint inputSeq;
+    readonly LinkedList<NetProtocol.InputSample> inputHistory = new LinkedList<NetProtocol.InputSample>();
+    const int InputHistoryLength = 5;   // survives up to 4 consecutive lost/reordered Input packets in a row
 
     // latency, measured (not assumed): a ping carries our own clock reading, the server echoes it back
     // unchanged, so (now - thatValue) on the reply is a real round trip time over this connection
@@ -95,6 +98,7 @@ public class NetClient : MonoBehaviour
     {
         if (socket == null) return;
 
+        NetSim.Pump(Time.time);
         DrainInbox();
 
         if (!welcomed)
@@ -116,11 +120,20 @@ public class NetClient : MonoBehaviour
         if (Time.time - lastInputSent >= 1f / NetConfig.SendRate)
         {
             lastInputSent = Time.time;
-            Send(NetProtocol.WriteInput(
-                localInput != null ? localInput.Throttle : 0f,
-                localInput != null ? localInput.Steer : 0f,
-                localInput != null && localInput.Handbrake,
-                localInput != null && localInput.PeekReset()));
+            NetProtocol.InputSample sample = new NetProtocol.InputSample
+            {
+                seq = ++inputSeq,
+                throttle = localInput != null ? localInput.Throttle : 0f,
+                steer = localInput != null ? localInput.Steer : 0f,
+                handbrake = localInput != null && localInput.Handbrake,
+                reset = localInput != null && localInput.PeekReset(),
+            };
+            inputHistory.AddLast(sample);
+            while (inputHistory.Count > InputHistoryLength) inputHistory.RemoveFirst();
+
+            NetProtocol.InputSample[] history = new NetProtocol.InputSample[inputHistory.Count];
+            inputHistory.CopyTo(history, 0);
+            Send(NetProtocol.WriteInput(history));
         }
 
         if (Time.time - lastPingSent >= NetConfig.PingInterval)
@@ -287,8 +300,7 @@ public class NetClient : MonoBehaviour
 
     void Send(byte[] data)
     {
-        try { socket.Send(data, data.Length); }
-        catch (Exception) { /* a dropped send: the next periodic send will retry with fresh state */ }
+        NetSim.Send(socket, data, Time.time);   // no-op passthrough unless NetSim.OneWayDelayMs is set (test-only)
     }
 
     // Closes the socket and stops trying. Does NOT disable this component: OnGUI must keep running so

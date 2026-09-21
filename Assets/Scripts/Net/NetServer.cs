@@ -24,6 +24,7 @@ public class NetServer : MonoBehaviour
         public CarInput input;
         public Rigidbody rb;
         public float lastSeen;
+        public uint lastAppliedSeq;   // so a redundant, already-applied entry in a later packet's history is ignored
     }
 
     UdpClient socket;
@@ -64,6 +65,7 @@ public class NetServer : MonoBehaviour
 
     void Update()
     {
+        NetSim.Pump(Time.time);
         DrainInbox();
         SweepTimeouts();
 
@@ -116,12 +118,21 @@ public class NetServer : MonoBehaviour
                     SendTo(from, NetProtocol.WriteWelcome(p.id));
                     break;
                 case NetProtocol.MsgInput:
-                    NetProtocol.InputMsg msg = NetProtocol.ReadInput(r);
+                    NetProtocol.InputSample[] history = NetProtocol.ReadInput(r);
                     Player pl;
                     if (byEndpoint.TryGetValue(key, out pl))
                     {
                         pl.lastSeen = Time.time;
-                        pl.input.SetNetworkInput(msg.throttle, msg.steer, msg.handbrake, msg.reset);
+                        // the packet carries several recent samples for loss/reorder resilience (see
+                        // NetClient.Update) - only the newest one this player has not applied yet matters
+                        NetProtocol.InputSample? newest = null;
+                        foreach (NetProtocol.InputSample s in history)
+                            if (s.seq > pl.lastAppliedSeq && (newest == null || s.seq > newest.Value.seq)) newest = s;
+                        if (newest != null)
+                        {
+                            pl.lastAppliedSeq = newest.Value.seq;
+                            pl.input.SetNetworkInput(newest.Value.throttle, newest.Value.steer, newest.Value.handbrake, newest.Value.reset);
+                        }
                     }
                     break;
                 case NetProtocol.MsgPing:
@@ -213,8 +224,7 @@ public class NetServer : MonoBehaviour
 
     void SendTo(IPEndPoint ep, byte[] data)
     {
-        try { socket.Send(data, data.Length, ep); }
-        catch (Exception) { /* a dropped send: the next tick retries with fresh state */ }
+        NetSim.SendTo(socket, data, ep, Time.time);   // no-op passthrough unless NetSim.OneWayDelayMs is set (test-only)
     }
 
     void OnDestroy()

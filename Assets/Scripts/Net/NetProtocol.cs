@@ -37,32 +37,50 @@ public static class NetProtocol
         }
     }
 
-    public static byte[] WriteInput(float throttle, float steer, bool handbrake, bool reset)
+    public struct InputSample { public uint seq; public float throttle, steer; public bool handbrake, reset; }
+
+    // Carries the current input PLUS the last few samples before it (each with an increasing sequence
+    // number), so a single lost or badly-reordered UDP packet does not leave the server driving on a
+    // stale value until the next packet happens to arrive - the very next packet's redundant history
+    // backfills the gap. The receiver only needs the entry with the highest seq it has not seen yet
+    // (see NetServer.Handle); it does not need to apply every entry in order.
+    public static byte[] WriteInput(InputSample[] history)
     {
         using (MemoryStream ms = new MemoryStream())
         using (BinaryWriter w = new BinaryWriter(ms))
         {
             w.Write(MsgInput);
-            w.Write(throttle);
-            w.Write(steer);
-            byte flags = 0;
-            if (handbrake) flags |= 1;
-            if (reset) flags |= 2;
-            w.Write(flags);
+            w.Write((byte)history.Length);
+            foreach (InputSample s in history)
+            {
+                w.Write(s.seq);
+                w.Write(s.throttle);
+                w.Write(s.steer);
+                byte flags = 0;
+                if (s.handbrake) flags |= 1;
+                if (s.reset) flags |= 2;
+                w.Write(flags);
+            }
             return ms.ToArray();
         }
     }
 
-    public struct InputMsg { public float throttle, steer; public bool handbrake, reset; }
-    public static InputMsg ReadInput(BinaryReader r)
+    public static InputSample[] ReadInput(BinaryReader r)
     {
-        InputMsg m;
-        m.throttle = r.ReadSingle();
-        m.steer = r.ReadSingle();
-        byte flags = r.ReadByte();
-        m.handbrake = (flags & 1) != 0;
-        m.reset = (flags & 2) != 0;
-        return m;
+        int n = r.ReadByte();
+        InputSample[] result = new InputSample[n];
+        for (int i = 0; i < n; i++)
+        {
+            InputSample s;
+            s.seq = r.ReadUInt32();
+            s.throttle = r.ReadSingle();
+            s.steer = r.ReadSingle();
+            byte flags = r.ReadByte();
+            s.handbrake = (flags & 1) != 0;
+            s.reset = (flags & 2) != 0;
+            result[i] = s;
+        }
+        return result;
     }
 
     // angVel (radians/sec, Rigidbody.angularVelocity) lets the receiver extrapolate a snapshot along the
