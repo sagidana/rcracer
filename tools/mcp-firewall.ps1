@@ -9,7 +9,7 @@ param(
     [string]$Ports = "8080,9876"     # comma separated; a plain string because -File passes strings
 )
 $ErrorActionPreference = "Stop"
-$Ports = @($Ports -split "[, ]+" | Where-Object { $_ -ne "" } | ForEach-Object { [int]$_ })
+$PortList = @($Ports -split "[, ]+" | Where-Object { $_ -ne "" } | ForEach-Object { [int]$_ })
 $log = Join-Path $env:TEMP "wsl-mcp-firewall.log"
 $lines = @()
 $BlenderPort = 9876
@@ -17,7 +17,7 @@ $BlenderPort = 9876
 try {
     switch ($Action) {
         "open" {
-            foreach ($p in $Ports) {
+            foreach ($p in $PortList) {
                 $name = "WSL MCP $p"
                 if (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue) {
                     $lines += "rule '$name' already exists"
@@ -26,14 +26,14 @@ try {
                     $lines += "rule '$name' added (inbound TCP $p allowed)"
                 }
             }
-            if ($Ports -contains $BlenderPort) {
+            if ($PortList -contains $BlenderPort) {
                 netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=$BlenderPort | Out-Null
                 netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=$BlenderPort connectaddress=127.0.0.1 connectport=$BlenderPort | Out-Null
                 $lines += "port forward 0.0.0.0:$BlenderPort -> 127.0.0.1:$BlenderPort set"
             }
         }
         "close" {
-            foreach ($p in $Ports) {
+            foreach ($p in $PortList) {
                 $name = "WSL MCP $p"
                 if (Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue) {
                     Remove-NetFirewallRule -DisplayName $name
@@ -42,7 +42,7 @@ try {
                     $lines += "rule '$name' not present"
                 }
             }
-            if ($Ports -contains $BlenderPort) {
+            if ($PortList -contains $BlenderPort) {
                 netsh interface portproxy delete v4tov4 listenaddress=0.0.0.0 listenport=$BlenderPort | Out-Null
                 $lines += "port forward for $BlenderPort removed"
             }
