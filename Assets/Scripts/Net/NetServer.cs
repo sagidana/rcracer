@@ -87,6 +87,20 @@ public class NetServer : MonoBehaviour
     void Handle(IPEndPoint from, byte[] data)
     {
         if (data.Length == 0) return;
+        try
+        {
+            HandleUnsafe(from, data);
+        }
+        catch (EndOfStreamException)
+        {
+            // a packet shaped differently than expected - a client on a different build of this same
+            // protocol, most likely. Drop it rather than let one bad sender take the whole server down
+            // for every connected player.
+        }
+    }
+
+    void HandleUnsafe(IPEndPoint from, byte[] data)
+    {
         using (MemoryStream ms = new MemoryStream(data))
         using (BinaryReader r = new BinaryReader(ms))
         {
@@ -190,6 +204,7 @@ public class NetServer : MonoBehaviour
                 pos = p.rb.position,
                 rot = p.rb.rotation,
                 vel = p.rb.linearVelocity,
+                angVel = p.rb.angularVelocity,
             };
         }
         byte[] data = NetProtocol.WriteSnapshot(states);

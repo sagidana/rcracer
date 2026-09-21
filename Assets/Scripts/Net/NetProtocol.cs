@@ -65,7 +65,11 @@ public static class NetProtocol
         return m;
     }
 
-    public struct PlayerState { public byte playerId; public byte carIndex; public Vector3 pos; public Quaternion rot; public Vector3 vel; }
+    // angVel (radians/sec, Rigidbody.angularVelocity) lets the receiver extrapolate a snapshot along the
+    // curve the car is actually turning through, instead of a straight line from linear velocity alone -
+    // a car mid-corner does not travel straight, so straight-line extrapolation systematically predicts
+    // the wrong spot exactly while turning at speed, which is the most common time a jump is visible.
+    public struct PlayerState { public byte playerId; public byte carIndex; public Vector3 pos; public Quaternion rot; public Vector3 vel; public Vector3 angVel; }
 
     public static byte[] WriteSnapshot(PlayerState[] players)
     {
@@ -81,6 +85,7 @@ public static class NetProtocol
                 WriteVector3(w, p.pos);
                 WriteQuaternion(w, p.rot);
                 WriteVector3(w, p.vel);
+                WriteVector3(w, p.angVel);
             }
             return ms.ToArray();
         }
@@ -98,6 +103,7 @@ public static class NetProtocol
             p.pos = ReadVector3(r);
             p.rot = ReadQuaternion(r);
             p.vel = ReadVector3(r);
+            p.angVel = ReadVector3(r);
             result[i] = p;
         }
         return result;

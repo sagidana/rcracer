@@ -42,6 +42,7 @@ public class NetClient : MonoBehaviour
     Vector3 lastServerPos;
     Quaternion lastServerRot = Quaternion.identity;
     Vector3 lastServerVel;
+    Vector3 lastServerAngVel;
     float lastServerSnapshotTime;
 
     readonly Dictionary<byte, RemoteCarView> remotes = new Dictionary<byte, RemoteCarView>();
@@ -144,6 +145,20 @@ public class NetClient : MonoBehaviour
     void Handle(byte[] data)
     {
         if (data.Length == 0) return;
+        try
+        {
+            HandleUnsafe(data);
+        }
+        catch (EndOfStreamException)
+        {
+            // a packet that is a different shape than expected - almost always a server running an
+            // older/newer build of this same protocol (e.g. mid-deploy). Drop it and keep going rather
+            // than let a single stray or version-mismatched packet spam exceptions into every frame.
+        }
+    }
+
+    void HandleUnsafe(byte[] data)
+    {
         using (MemoryStream ms = new MemoryStream(data))
         using (BinaryReader r = new BinaryReader(ms))
         {
@@ -183,6 +198,7 @@ public class NetClient : MonoBehaviour
                 lastServerPos = p.pos;
                 lastServerRot = p.rot;
                 lastServerVel = p.vel;
+                lastServerAngVel = p.angVel;
                 lastServerSnapshotTime = Time.time;
                 haveServerState = true;
                 continue;
@@ -194,7 +210,7 @@ public class NetClient : MonoBehaviour
                 view = SpawnRemote(p.carIndex);
                 remotes[p.playerId] = view;
             }
-            if (view != null) view.SetTarget(p.pos, p.rot, p.vel);
+            if (view != null) view.SetTarget(p.pos, p.rot, p.vel, p.angVel);
         }
         // players in the snapshot but not the world (a slow PlayerLeft, or we joined mid-game after
         // they were already gone) are pruned lazily here rather than needing a second message type
@@ -211,37 +227,44 @@ public class NetClient : MonoBehaviour
     // Runs every frame rather than once per snapshot: a snapshot is a sample of where the car WAS at
     // the moment the server sent it, already up to one round trip stale by the time it gets here. At
     // speed that alone looks like meters of "disagreement" that is not a real divergence at all, so
-    // this extrapolates the snapshot forward (using its own reported velocity, plus how long ago it
-    // arrived, plus half the measured ping) before comparing. What is left after that is a genuine
-    // gap, which is eased in smoothly - a hard snap is reserved for something clearly wrong (a missed
-    // collision, a fresh join, a long dropout), not for ordinary network latency.
+    // this extrapolates the snapshot forward (using its own reported velocity and angular velocity,
+    // how long ago it arrived, plus half the measured ping) before comparing. Position is extrapolated
+    // ALONG THE CURVE the car is turning through (rotate the velocity by half the predicted turn, then
+    // step forward), not a straight line - a car mid-corner does not travel straight, so straight-line
+    // prediction is systematically wrong exactly while cornering at speed, which is when a jump was
+    // most visible. What is left after that is a genuine gap, eased in smoothly; a hard snap is
+    // reserved for something clearly wrong (a missed collision, a fresh join, a long dropout).
     void ReconcileTick()
     {
         if (!haveServerState || localRb == null) return;
 
         float oneWayLatency = smoothedRttMs > 0f ? smoothedRttMs * 0.0005f : 0f;   // ms -> s, /2 for one-way
         float age = (Time.time - lastServerSnapshotTime) + oneWayLatency;
-        Vector3 target = lastServerPos + lastServerVel * age;
+
+        Quaternion turn = Quaternion.Euler(lastServerAngVel * Mathf.Rad2Deg * age);
+        Quaternion targetRot = turn * lastServerRot;
+        Vector3 midVel = Quaternion.Euler(lastServerAngVel * Mathf.Rad2Deg * age * 0.5f) * lastServerVel;
+        Vector3 target = lastServerPos + midVel * age;
 
         float dist = Vector3.Distance(localRb.position, target);
-        float angle = Quaternion.Angle(localRb.rotation, lastServerRot);
+        float angle = Quaternion.Angle(localRb.rotation, targetRot);
         if (dist <= NetConfig.ReconcileDistance && angle <= NetConfig.ReconcileAngle) return;
 
         if (dist > NetConfig.HardSnapDistance || angle > NetConfig.HardSnapAngle)
         {
             Debug.Log("NetClient: hard-correcting (dist=" + dist.ToString("0.0") + "m, angle=" + angle.ToString("0") + " deg)");
             localRb.position = target;
-            localRb.rotation = lastServerRot;
-            localRb.linearVelocity = lastServerVel;
-            localRb.angularVelocity = Vector3.zero;
+            localRb.rotation = targetRot;
+            localRb.linearVelocity = midVel;
+            localRb.angularVelocity = lastServerAngVel;
             return;
         }
 
-        // a moderate, genuine gap: ease toward the server's state instead of teleporting
+        // a moderate, genuine gap: ease toward the server's (extrapolated) state instead of teleporting
         float k = 1f - Mathf.Exp(-Time.deltaTime / NetConfig.ReconcileEase);
         localRb.position = Vector3.Lerp(localRb.position, target, k);
-        localRb.rotation = Quaternion.Slerp(localRb.rotation, lastServerRot, k);
-        localRb.linearVelocity = Vector3.Lerp(localRb.linearVelocity, lastServerVel, k);
+        localRb.rotation = Quaternion.Slerp(localRb.rotation, targetRot, k);
+        localRb.linearVelocity = Vector3.Lerp(localRb.linearVelocity, midVel, k);
     }
 
     RemoteCarView SpawnRemote(byte carIndex)
