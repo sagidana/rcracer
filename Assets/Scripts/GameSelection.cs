@@ -9,8 +9,8 @@ public static class GameSelection
     public static readonly string[] CarLabels = { "Buggy", "Roadster", "Bike" };
 
     // track scene names (built by Tools > Tracks > Build Track Scenes) and what the menu shows for them
-    public static readonly string[] Tracks = { "Track_Street", "Track_Test" };
-    public static readonly string[] TrackLabels = { "Street", "Test Track" };
+    public static readonly string[] Tracks = { "Track_Street", "Track_Desert", "Track_Test" };
+    public static readonly string[] TrackLabels = { "Street", "Desert Canyon", "Test Track" };
 
     public const string MenuScene = "Menu";
     public const string CarResourceFolder = "Cars";

@@ -4,7 +4,7 @@ using UnityEngine;
 // Helpers for StreetTrackBuilder: mesh building, color palette, batching.
 public static partial class StreetTrackBuilder
 {
-    static readonly Dictionary<string, Color> Palette = new Dictionary<string, Color>
+    internal static readonly Dictionary<string, Color> Palette = new Dictionary<string, Color>
     {
         {"asphalt", new Color(0.13f, 0.13f, 0.15f)},
         {"lineYellow", new Color(1f, 0.82f, 0.1f)},
@@ -54,7 +54,7 @@ public static partial class StreetTrackBuilder
         {"bannerRed", new Color(0.85f, 0.1f, 0.1f)},
     };
 
-    static Material MakeMat(Color c)
+    internal static Material MakeMat(Color c)
     {
         Material m = RaceSceneSetup.MakeMaterial(c);
         if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", 0.15f);
@@ -68,7 +68,7 @@ public static partial class StreetTrackBuilder
 
     // ---------- mesh data ----------
 
-    class MeshData
+    internal class MeshData
     {
         public readonly List<Vector3> verts = new List<Vector3>();
         public readonly List<int> tris = new List<int>();
@@ -174,7 +174,7 @@ public static partial class StreetTrackBuilder
     }
 
     // One mesh per material key: keeps draw calls low.
-    class Batch
+    internal class Batch
     {
         readonly Dictionary<string, MeshData> data = new Dictionary<string, MeshData>();
 
@@ -200,7 +200,7 @@ public static partial class StreetTrackBuilder
         }
     }
 
-    static GameObject MakeMeshObject(string name, Transform parent, MeshData data, Material mat, bool collider)
+    internal static GameObject MakeMeshObject(string name, Transform parent, MeshData data, Material mat, bool collider)
     {
         GameObject go = new GameObject(name);
         go.transform.SetParent(parent, false);
@@ -212,7 +212,7 @@ public static partial class StreetTrackBuilder
     }
 
     // Invisible object that only has a mesh collider.
-    static void MakeColliderObject(string name, Transform parent, MeshData data)
+    internal static void MakeColliderObject(string name, Transform parent, MeshData data)
     {
         GameObject go = new GameObject(name);
         go.transform.SetParent(parent, false);

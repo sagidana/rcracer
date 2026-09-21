@@ -61,7 +61,7 @@ public static partial class StreetTrackBuilder
     // =====================================================================
 
     const string RootName = "StreetTrack";
-    const float SampleStep = 2f;
+    internal const float SampleStep = 2f;
 
     static PathData main, cut;
     static Batch batch;

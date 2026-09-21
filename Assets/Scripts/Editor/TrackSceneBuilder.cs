@@ -25,8 +25,9 @@ public static class TrackSceneBuilder
 
     static readonly Track[] Tracks =
     {
-        new Track("Track_Street", new[] { "TestTrack", "PhysicsTestObstacles" }, StreetTrackBuilder.Build),
-        new Track("Track_Test", new[] { "StreetTrack", "PhysicsTestObstacles" }, TestTrackBuilder.Build),
+        new Track("Track_Street", new[] { "TestTrack", "PhysicsTestObstacles", "DesertTrack" }, StreetTrackBuilder.Build),
+        new Track("Track_Desert", new[] { "TestTrack", "PhysicsTestObstacles", "StreetTrack" }, DesertTrackBuilder.Build),
+        new Track("Track_Test", new[] { "StreetTrack", "PhysicsTestObstacles", "DesertTrack" }, TestTrackBuilder.Build),
     };
 
     [MenuItem("Tools/Tracks/Build Track Scenes")]

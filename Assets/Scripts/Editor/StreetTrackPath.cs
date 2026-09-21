@@ -4,7 +4,7 @@ using UnityEngine;
 // Turns the waypoint list into a smooth path: straight lines with round corners.
 public static partial class StreetTrackBuilder
 {
-    class PathData
+    internal class PathData
     {
         public Vector3[] pos, fwd, right;
         public float step;
@@ -18,7 +18,7 @@ public static partial class StreetTrackBuilder
         if (list.Count == 0 || Vector3.Distance(list[list.Count - 1], p) > 0.0001f) list.Add(p);
     }
 
-    static PathData BuildPath(WP[] w, bool closed)
+    internal static PathData BuildPath(WP[] w, bool closed)
     {
         int n = w.Length;
         float[] arcT = new float[n], arcR = new float[n], arcTheta = new float[n], k = new float[n];
