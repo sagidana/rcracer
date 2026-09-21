@@ -110,6 +110,12 @@ public class NetServer : MonoBehaviour
                         pl.input.SetNetworkInput(msg.throttle, msg.steer, msg.handbrake, msg.reset);
                     }
                     break;
+                case NetProtocol.MsgPing:
+                    // a stateless echo - answers even before Hello/Welcome, so it also works as a
+                    // quick "is the server up" probe from outside the game
+                    float echoed = NetProtocol.ReadPingPong(r);
+                    SendTo(from, NetProtocol.WritePong(echoed));
+                    break;
             }
         }
     }

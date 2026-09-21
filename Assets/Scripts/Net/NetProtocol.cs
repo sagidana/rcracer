@@ -12,6 +12,8 @@ public static class NetProtocol
     public const byte MsgInput = 3;        // client -> server: current control state
     public const byte MsgSnapshot = 4;     // server -> client: every player's transform
     public const byte MsgPlayerLeft = 5;   // server -> client: that player disconnected
+    public const byte MsgPing = 6;         // client -> server: "what's my round trip time?" (echo this back unchanged)
+    public const byte MsgPong = 7;         // server -> client: echo of a Ping's payload
 
     public static byte[] WriteHello(byte carIndex)
     {
@@ -111,6 +113,22 @@ public static class NetProtocol
             return ms.ToArray();
         }
     }
+
+    // the payload is just the sender's own clock reading at send time; the receiver never interprets
+    // it, only echoes it back so the original sender can compute (now - thatValue) = round trip time
+    public static byte[] WritePing(float senderTime) { return WritePingPong(MsgPing, senderTime); }
+    public static byte[] WritePong(float echoedTime) { return WritePingPong(MsgPong, echoedTime); }
+    static byte[] WritePingPong(byte tag, float time)
+    {
+        using (MemoryStream ms = new MemoryStream())
+        using (BinaryWriter w = new BinaryWriter(ms))
+        {
+            w.Write(tag);
+            w.Write(time);
+            return ms.ToArray();
+        }
+    }
+    public static float ReadPingPong(BinaryReader r) { return r.ReadSingle(); }
 
     static void WriteVector3(BinaryWriter w, Vector3 v) { w.Write(v.x); w.Write(v.y); w.Write(v.z); }
     static Vector3 ReadVector3(BinaryReader r) { return new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle()); }

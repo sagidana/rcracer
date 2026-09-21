@@ -30,6 +30,20 @@ public class NetClient : MonoBehaviour
     float lastHelloSent = -99f;
     float lastInputSent = -99f;
 
+    // latency, measured (not assumed): a ping carries our own clock reading, the server echoes it back
+    // unchanged, so (now - thatValue) on the reply is a real round trip time over this connection
+    float lastPingSent = -99f;
+    float smoothedRttMs = -1f;
+    public float LatencyMs { get { return smoothedRttMs; } }
+
+    // the most recent snapshot naming this player, used by ReconcileTick every frame rather than
+    // correcting once on arrival - see ReconcileTick for why
+    bool haveServerState;
+    Vector3 lastServerPos;
+    Quaternion lastServerRot = Quaternion.identity;
+    Vector3 lastServerVel;
+    float lastServerSnapshotTime;
+
     readonly Dictionary<byte, RemoteCarView> remotes = new Dictionary<byte, RemoteCarView>();
 
     public bool Connected { get { return welcomed; } }
@@ -107,6 +121,14 @@ public class NetClient : MonoBehaviour
                 localInput != null && localInput.Handbrake,
                 localInput != null && localInput.PeekReset()));
         }
+
+        if (Time.time - lastPingSent >= NetConfig.PingInterval)
+        {
+            lastPingSent = Time.time;
+            Send(NetProtocol.WritePing(Time.time));
+        }
+
+        ReconcileTick();
     }
 
     void DrainInbox()
@@ -141,6 +163,11 @@ public class NetClient : MonoBehaviour
                     RemoteCarView view;
                     if (remotes.TryGetValue(left, out view)) { if (view != null) Destroy(view.gameObject); remotes.Remove(left); }
                     break;
+                case NetProtocol.MsgPong:
+                    float sentAt = NetProtocol.ReadPingPong(r);
+                    float rttMs = Mathf.Max(0f, Time.time - sentAt) * 1000f;
+                    smoothedRttMs = smoothedRttMs < 0f ? rttMs : Mathf.Lerp(smoothedRttMs, rttMs, NetConfig.LatencySmoothing);
+                    break;
             }
         }
     }
@@ -151,7 +178,15 @@ public class NetClient : MonoBehaviour
         foreach (NetProtocol.PlayerState p in players)
         {
             seen.Add(p.playerId);
-            if (welcomed && p.playerId == playerId) { Reconcile(p); continue; }
+            if (welcomed && p.playerId == playerId)
+            {
+                lastServerPos = p.pos;
+                lastServerRot = p.rot;
+                lastServerVel = p.vel;
+                lastServerSnapshotTime = Time.time;
+                haveServerState = true;
+                continue;
+            }
 
             RemoteCarView view;
             if (!remotes.TryGetValue(p.playerId, out view) || view == null)
@@ -173,19 +208,40 @@ public class NetClient : MonoBehaviour
         foreach (byte id in gone) { if (remotes[id] != null) Destroy(remotes[id].gameObject); remotes.Remove(id); }
     }
 
-    void Reconcile(NetProtocol.PlayerState server)
+    // Runs every frame rather than once per snapshot: a snapshot is a sample of where the car WAS at
+    // the moment the server sent it, already up to one round trip stale by the time it gets here. At
+    // speed that alone looks like meters of "disagreement" that is not a real divergence at all, so
+    // this extrapolates the snapshot forward (using its own reported velocity, plus how long ago it
+    // arrived, plus half the measured ping) before comparing. What is left after that is a genuine
+    // gap, which is eased in smoothly - a hard snap is reserved for something clearly wrong (a missed
+    // collision, a fresh join, a long dropout), not for ordinary network latency.
+    void ReconcileTick()
     {
-        if (localRb == null) return;
-        float dist = Vector3.Distance(localRb.position, server.pos);
-        float angle = Quaternion.Angle(localRb.rotation, server.rot);
+        if (!haveServerState || localRb == null) return;
+
+        float oneWayLatency = smoothedRttMs > 0f ? smoothedRttMs * 0.0005f : 0f;   // ms -> s, /2 for one-way
+        float age = (Time.time - lastServerSnapshotTime) + oneWayLatency;
+        Vector3 target = lastServerPos + lastServerVel * age;
+
+        float dist = Vector3.Distance(localRb.position, target);
+        float angle = Quaternion.Angle(localRb.rotation, lastServerRot);
         if (dist <= NetConfig.ReconcileDistance && angle <= NetConfig.ReconcileAngle) return;
 
-        // the server's physics disagreed with ours enough to matter (usually a collision it resolved
-        // differently) - snap to its authoritative state rather than keep drifting
-        localRb.position = server.pos;
-        localRb.rotation = server.rot;
-        localRb.linearVelocity = server.vel;
-        localRb.angularVelocity = Vector3.zero;
+        if (dist > NetConfig.HardSnapDistance || angle > NetConfig.HardSnapAngle)
+        {
+            Debug.Log("NetClient: hard-correcting (dist=" + dist.ToString("0.0") + "m, angle=" + angle.ToString("0") + " deg)");
+            localRb.position = target;
+            localRb.rotation = lastServerRot;
+            localRb.linearVelocity = lastServerVel;
+            localRb.angularVelocity = Vector3.zero;
+            return;
+        }
+
+        // a moderate, genuine gap: ease toward the server's state instead of teleporting
+        float k = 1f - Mathf.Exp(-Time.deltaTime / NetConfig.ReconcileEase);
+        localRb.position = Vector3.Lerp(localRb.position, target, k);
+        localRb.rotation = Quaternion.Slerp(localRb.rotation, lastServerRot, k);
+        localRb.linearVelocity = Vector3.Lerp(localRb.linearVelocity, lastServerVel, k);
     }
 
     RemoteCarView SpawnRemote(byte carIndex)
@@ -227,8 +283,8 @@ public class NetClient : MonoBehaviour
     {
         string status;
         if (gaveUp) status = "Offline (solo) - could not reach the server";
-        else if (welcomed) status = "Online - " + (remotes.Count + 1) + " car(s)";
+        else if (welcomed) status = "Online - " + (remotes.Count + 1) + " car(s)" + (smoothedRttMs >= 0f ? " - " + smoothedRttMs.ToString("0") + " ms" : " - measuring ping...");
         else status = "Connecting...";
-        GUI.Label(new Rect(10, 10, 400, 24), status);
+        GUI.Label(new Rect(10, 10, 500, 24), status);
     }
 }
