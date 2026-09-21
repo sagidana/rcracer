@@ -28,10 +28,11 @@ find_unity() {
     if [ -x "$WIN_HUB/$VERSION/Editor/Unity.exe" ]; then echo "$WIN_HUB/$VERSION/Editor/Unity.exe"; return; fi
     local major="${VERSION%%.*}"
     local dir
-    for dir in $(ls -d "$LINUX_HUB"/"$major".* "$WIN_HUB"/"$major".* 2>/dev/null | sort -rV); do
+    while IFS= read -r dir; do
+        [ -n "$dir" ] || continue
         if [ -x "$dir/Editor/Unity" ]; then echo "$dir/Editor/Unity"; return; fi
         if [ -x "$dir/Editor/Unity.exe" ]; then echo "$dir/Editor/Unity.exe"; return; fi
-    done
+    done < <(ls -d "$LINUX_HUB"/"$major".* "$WIN_HUB"/"$major".* 2>/dev/null | sort -rV)
     echo ""
 }
 
