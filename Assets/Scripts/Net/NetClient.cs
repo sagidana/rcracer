@@ -26,6 +26,8 @@ public class NetClient : MonoBehaviour
     bool welcomed;
     bool gaveUp;   // tried and failed to reach the server; OnGUI shows this so "offline" is never just a guess
     byte serverVersion;   // the wire version the server reported when it turned this build away, 0 = it did not
+    bool reconnecting;    // was welcomed once and lost the server since (see KeepAlive)
+    float lastSnapshotAt = -99f;
     byte playerId;
     float connectStart;
     float lastHelloSent = -99f;
@@ -71,6 +73,15 @@ public class NetClient : MonoBehaviour
     // packet: when it is the only thing that removes a car, losing it strands that car on screen
     // forever, motionless, looking exactly like a player who joined and never moved.
     const float RemoteTimeout = 2f;
+
+    // Snapshots arrive 20 times a second, so this long without one means the server is no longer
+    // sending us any - which in practice means it is no longer sending them TO US: a player who went
+    // quiet for PlayerTimeout (an alt-tab used to freeze the whole game, a network hiccup, a NAT
+    // remapping the port) has had their car destroyed and is not in the broadcast list any more.
+    // Hello was only ever sent before the first Welcome, so such a client stayed "Online" forever,
+    // sending input nobody applied and seeing nobody, until the player restarted the game. Now it
+    // simply joins again.
+    const float SnapshotSilence = 3f;
 
     Vector3 pendingCorrection;   // position difference still being fed in (see ApplyPendingCorrection)
 
@@ -139,7 +150,11 @@ public class NetClient : MonoBehaviour
 
         if (!welcomed)
         {
-            if (Time.time - connectStart > NetConfig.ConnectTimeout)
+            // Only the FIRST attempt gives up and settles into offline play. Having been online once,
+            // there is a race in progress to get back to, and the server being unreachable for four
+            // seconds is a hiccup, not a verdict - so a reconnect keeps knocking (twice a second)
+            // rather than stranding the player alone on a track everyone else is still driving.
+            if (!reconnecting && Time.time - connectStart > NetConfig.ConnectTimeout)
             {
                 Debug.LogWarning("NetClient: server did not answer within " + NetConfig.ConnectTimeout + "s - playing offline.");
                 Shutdown();
@@ -153,6 +168,8 @@ public class NetClient : MonoBehaviour
             return;
         }
 
+        if (KeepAlive()) return;
+
         if (Time.time - lastInputSent >= 1f / NetConfig.SendRate) SendInput();
 
         if (Time.time - lastPingSent >= NetConfig.PingInterval)
@@ -165,6 +182,39 @@ public class NetClient : MonoBehaviour
         // was driving must still leave rather than stand around being someone who is no longer here
         PruneStale();
         ReconcileTick();
+    }
+
+    // Drops back to the Hello handshake when the server has stopped sending snapshots. Everything tied
+    // to the old session is thrown away with it: the input ticks nobody will ever acknowledge, the
+    // server tick counter (a restarted server counts from zero again, and the ordering guard would
+    // reject every one of its snapshots against the old high-water mark), and the other players, whose
+    // cars are about to be re-announced by the first snapshot of the new session anyway.
+    // Returns true when this frame was spent reconnecting rather than racing.
+    bool KeepAlive()
+    {
+        if (Time.time - lastSnapshotAt <= SnapshotSilence) return false;
+
+        Debug.LogWarning("NetClient: no snapshot for " + SnapshotSilence + "s - rejoining.");
+        welcomed = false;
+        reconnecting = true;
+        playerId = 0;
+        connectStart = Time.time;
+        lastHelloSent = -99f;   // knock immediately, not half a second from now
+        unconfirmed.Clear();
+        lastAckedSeq = 0;
+        haveServerState = false;
+        haveServerTick = false;
+        snapshotPending = false;
+        pendingCorrection = Vector3.zero;
+        ClearRemotes();
+        return true;
+    }
+
+    void ClearRemotes()
+    {
+        foreach (KeyValuePair<byte, RemoteCarView> kv in remotes) if (kv.Value != null) Destroy(kv.Value.gameObject);
+        remotes.Clear();
+        remoteLastSeen.Clear();
     }
 
     // Sampled here, not in Update, because one sample must mean exactly one physics tick: the local car
@@ -247,6 +297,8 @@ public class NetClient : MonoBehaviour
                 case NetProtocol.MsgWelcome:
                     playerId = r.ReadByte();
                     welcomed = true;
+                    reconnecting = false;
+                    lastSnapshotAt = Time.time;   // not a snapshot, but proof the server is answering
                     Debug.Log("NetClient: connected as player " + playerId);
                     break;
                 case NetProtocol.MsgSnapshot:
@@ -261,6 +313,10 @@ public class NetClient : MonoBehaviour
                     if (haveServerTick && serverTick <= lastServerTick) break;
                     lastServerTick = serverTick;
                     haveServerTick = true;
+                    // deliberately not counted before this point: a restarted server's ticks start
+                    // again from zero and are all rejected above, and treating those as "the server is
+                    // answering" would leave this client waiting on a session that no longer exists
+                    lastSnapshotAt = Time.time;
                     ApplySnapshot(states);
                     break;
                 case NetProtocol.MsgPlayerLeft:
@@ -467,10 +523,7 @@ public class NetClient : MonoBehaviour
     void OnDestroy()
     {
         Shutdown();
-        // the remote cars are separate objects in the scene, not children of this one
-        foreach (KeyValuePair<byte, RemoteCarView> kv in remotes) if (kv.Value != null) Destroy(kv.Value.gameObject);
-        remotes.Clear();
-        remoteLastSeen.Clear();
+        ClearRemotes();   // the remote cars are separate objects in the scene, not children of this one
     }
 
     void OnGUI()
@@ -478,6 +531,7 @@ public class NetClient : MonoBehaviour
         string status;
         if (serverVersion != 0) status = "Offline - version mismatch: this build speaks net " + NetProtocol.Version + ", the server speaks net " + serverVersion + ". Pull and rebuild.";
         else if (gaveUp) status = "Offline (solo) - could not reach the server";
+        else if (reconnecting) status = "Reconnecting...";
         else if (welcomed) status = "Online - " + (remotes.Count + 1) + " car(s)" + (smoothedRttMs >= 0f ? " - " + smoothedRttMs.ToString("0") + " ms" : " - measuring ping...");
         else status = "Connecting...";
         // the build stamp sits on the status line so comparing it with a friend's screen is a glance,

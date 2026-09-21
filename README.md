@@ -186,6 +186,30 @@ Measured driving at full throttle with continuous weaving, the worst single-fram
 velocity does not account for is 0.34m at 60ms round trip and 0.29m at 250ms, against 0.24m for the same
 driving with no networking at all. Standing still while connected, the car does not move at all.
 
+### When a connection drops
+
+The server destroys a car whose player has gone quiet for `PlayerTimeout` (8s), so a client that
+stopped sending for that long is no longer in the snapshot broadcast - it would sit there reporting
+"Online", sending input nobody applies, seeing nobody, and being seen by nobody, until the player
+restarted the game. Two things prevent that now:
+
+* the game keeps running when its window is not focused (`runInBackground`). Alt-tabbing used to
+  freeze it outright, which is 8 seconds of silence about as often as someone reads a message.
+* the client watches for snapshots, not just for a socket: 3 seconds without one and it drops back to
+  the Hello handshake and rejoins (`NetClient.KeepAlive`), throwing away the state of the session it
+  lost - including the server tick counter, so it also recovers from the server itself restarting.
+  Unlike the first connect, a reconnect keeps knocking rather than falling back to offline play.
+
+Rejoining means the server spawns a new car at the start line, so a player who genuinely dropped out
+mid-race comes back there rather than where they were - the server did not keep their car.
+
+The dedicated server caps its frame rate (`ServerBoot`). Left uncapped, the headless loop runs as fast
+as the machine allows and Unity's clock runs with it: measured 155 physics steps per real second on an
+idle 16-core box and 121 on the live server, against the 100 a client produces. The server runs out of
+input to apply, repeats the last controls it saw on a third of its steps without acknowledging them,
+and the client's unconfirmed buffer never drains - every snapshot then lands as a correction, which
+plays as constant rubber-banding.
+
 ### Versions: are we on the same build?
 
 The menu (bottom left) and the in-race status line both show the same string:
