@@ -122,6 +122,12 @@ to the newest installed editor of the same major version (e.g. any `6000.x`) and
 the project to that version on first open and rewrites `ProjectVersion.txt`. Keep everyone on the same version, so
 either install the exact one from the Hub's **Archive** tab, or agree on the newer version and commit the upgrade once.
 
+## Working with Claude Code from WSL (optional)
+
+`tools/mcp-firewall.sh open|close|status` opens or closes the Windows firewall for the MCP servers
+(Unity MCP on 8080, Blender MCP on 9876, plus the localhost port forward the Blender addon needs).
+`open`/`close` show a UAC prompt on Windows.
+
 ## What is in git
 
 Only source and project settings: `Assets/`, `Packages/`, `ProjectSettings/`, the build scripts and this file.
