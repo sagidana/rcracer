@@ -2,9 +2,65 @@
 
 Arcade RC-car racing game made with **Unity 6 (6000.3.24f1)**, Universal Render Pipeline and the new Input System.
 
-* `Assets/Scripts/` – runtime car physics (`CarController`, 4-wheel suspension), input, camera, wheel visuals, knockable props.
-* `Assets/Scripts/Editor/` – `Tools` menu helpers that generate the test scene, the street track and swap car models, plus `BuildScript` used by the build scripts below.
-* `Assets/Scenes/SampleScene.unity` – the playable scene.
+## Project map
+
+```
+.
+├── Assets/
+│   ├── Scenes/SampleScene.unity      the one playable scene (Car, Ground, TestTrack, StreetTrack, camera, light, volume)
+│   ├── Scripts/                      runtime code (ships in the .exe)
+│   │   ├── CarInput.cs               keyboard -> Throttle / Steer / Handbrake / Reset. Knows nothing about physics.
+│   │   ├── CarController.cs          the car: 4 wheels, spring+damper suspension via sphere casts, drive/brake/side grip.
+│   │   │                             Reads CarInput, runs only in FixedUpdate.
+│   │   ├── CarTuning.cs              the inspector foldouts of CarController (Body, Suspension, Drive, Steering,
+│   │   │                             Grip, Collision, Props, Debug) - every tunable number lives here
+│   │   ├── CarWheel.cs               one physics wheel (mount point + current contact). Plain class, owned by CarController.
+│   │   ├── CarWheelVisuals.cs        moves the 3D model's wheel meshes to match the physics (bounce, spin, steer)
+│   │   ├── FollowCamera.cs           chase camera with smoothing and impact shake
+│   │   ├── SpeedDisplay.cs           km/h text in the corner (OnGUI)
+│   │   ├── KnockableProp.cs          light cones / trash cans / mailboxes that fly away and return home
+│   │   ├── CarController_Old.cs      backup of the earlier "sliding box" car. Disabled, kept for reference.
+│   │   └── Editor/                   editor-only tools, all under the Tools menu (not in the .exe)
+│   │       ├── RaceSceneSetup.cs         Tools > Setup Race Scene         flat ground + box car from scratch
+│   │       ├── CarPhysicsSetup.cs        Tools > Apply New Car Physics   wires CarController + wheels on the Car
+│   │       ├── CarModelSwitcher.cs       Tools > Car Model > ...         swaps the buggy / roadster / bike model
+│   │       ├── TestTrackBuilder.cs       Tools > Build Test Track        closed loop with curbs, car on start line
+│   │       ├── StreetTrackBuilder.cs     Tools > Build Street Track      giant suburban street track, one "StreetTrack" object
+│   │       ├── StreetTrackPath.cs            waypoints -> smooth path with rounded corners
+│   │       ├── StreetTrackRoad.cs            road, lines, curbs, sidewalks, crosswalks, start line, shortcut
+│   │       ├── StreetTrackHouses.cs          houses, lawns, fences
+│   │       ├── StreetTrackProps.cs           big props: parked cars, bins, mailboxes, cones
+│   │       ├── StreetTrackKnockProps.cs      the small knockable props (uses KnockableProp)
+│   │       ├── StreetTrackGeometry.cs        mesh helpers, colour palette, batching
+│   │       ├── PropPhysicsTool.cs        Tools > Make Props Knockable
+│   │       ├── PhysicsTestObstacles.cs   Tools > Add Physics Test Obstacles   bumps / steps / wall to test suspension
+│   │       └── BuildScript.cs            Tools > Build > Windows (x64), and the entry point of build.sh / build.bat
+│   ├── Settings/                     URP render pipeline assets (PC + Mobile), renderers, volume profiles
+│   ├── InputSystem_Actions.inputactions   default Input System action map (CarInput reads the keyboard directly)
+│   ├── Free Adventure Vehicles/      car models used by Car Model switcher: Vehicle14 (bike), 16 (roadster), 19 (buggy)
+│   └── Unity Technologies/CarsAssetPack/   low-poly car pack (FBX/OBJ/Blend). Imported but not used by scene or scripts.
+├── Packages/manifest.json            Unity packages (URP 17.3, Input System 1.20, ...) - Unity keeps this in sync
+├── ProjectSettings/                  project-wide settings: physics, quality, tags, input, build scenes, editor version
+├── build.sh / build.bat              headless Windows build from WSL/Linux or Windows -> Build/Windows/RCRACE.exe
+└── .gitignore / .gitattributes       what stays out of git; line-ending rules
+```
+
+How the pieces talk to each other at runtime:
+
+```
+keyboard -> CarInput -> CarController (physics, 4x CarWheel) -> Rigidbody
+                              |                      \-> KnockableProp (collisions with props)
+                              +-> CarWheelVisuals (wheel meshes follow the physics)
+                              +-> FollowCamera (position, shake on impact)
+                              +-> SpeedDisplay (reads the Rigidbody speed)
+```
+
+The scene is generated, not hand-placed: the editor tools build the Car, the tracks and the props into
+`SampleScene`, and running a tool again replaces what it built before. The track scripts share one class
+(`StreetTrackBuilder`, split across the `StreetTrack*.cs` files).
+
+Everything Unity generates on your machine (`Library/`, `Logs/`, `Temp/`, `UserSettings/`, `Build/`, `.csproj`)
+is ignored and rebuilt when the project is opened.
 
 ## Requirements
 
