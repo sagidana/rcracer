@@ -1,9 +1,28 @@
 // Shared constants for the client <-> server UDP protocol.
 public static class NetConfig
 {
-    // The dedicated server's fixed address (deploy/deploy.sh installs it here).
-    public const string ServerIP = "142.132.187.130";
+    // Where a client looks for the server. Default is the tailscale node the server runs on now
+    // (tools/server.py, inside WSL); the hosted box that deploy/deploy.sh installs to is
+    // 142.132.187.130, kept written down here so switching back is a copy-paste and not a hunt.
+    public const string ServerIP = "100.92.144.44";
     public const int ServerPort = 7777;
+
+    // ...and any address at all for one run, without rebuilding every client:
+    //   RCRACE.exe -server=142.132.187.130
+    // which is the whole point - two players have to agree on a server, and a rebuild each is a
+    // poor way to agree on anything. Clients read this through NetClient.Init.
+    const string ServerFlag = "-server=";
+
+    public static string ResolveServerIP()
+    {
+        foreach (string arg in System.Environment.GetCommandLineArgs())
+        {
+            if (!arg.StartsWith(ServerFlag)) continue;
+            string value = arg.Substring(ServerFlag.Length).Trim();
+            if (value.Length > 0) return value;
+        }
+        return ServerIP;
+    }
 
     public const float SendRate = 30f;             // client input packets per second
     public const float SnapshotRate = 20f;         // server snapshot broadcasts per second

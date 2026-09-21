@@ -41,3 +41,7 @@ sysinfo.txt
 *.unitypackage
 *.app
 crashlytics-build.properties
+
+# Python bytecode from the helper scripts in tools/
+__pycache__/
+*.pyc

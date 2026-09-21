@@ -94,10 +94,11 @@ public class NetClient : MonoBehaviour
     public bool Connected { get { return welcomed; } }
     public int RemoteCount { get { return remotes.Count; } }
 
-    public void Init(GameObject car, int carIndex) { Init(car, carIndex, NetConfig.ServerIP); }
+    public void Init(GameObject car, int carIndex) { Init(car, carIndex, NetConfig.ResolveServerIP()); }
 
     // The 3-arg overload exists for testing (e.g. pointing at 127.0.0.1 in the editor) without
-    // touching NetConfig.ServerIP, which every real client uses by way of the 2-arg overload above.
+    // touching NetConfig, which every real client uses by way of the 2-arg overload above - that one
+    // honours -server=<address> on the command line (see NetConfig.ResolveServerIP).
     public void Init(GameObject car, int carIndex, string serverIp)
     {
         localCar = car;
@@ -548,7 +549,7 @@ public class NetClient : MonoBehaviour
         else if (gaveUp) status = "Offline (solo) - could not reach the server";
         else if (reconnecting) status = "Reconnecting...";
         else if (welcomed) status = "Online - " + (remotes.Count + 1) + " car(s)" + (smoothedRttMs >= 0f ? " - " + smoothedRttMs.ToString("0") + " ms" : " - measuring ping...");
-        else status = "Connecting...";
+        else status = "Connecting to " + (serverEndPoint != null ? serverEndPoint.Address.ToString() : "the server") + "...";
         // the build stamp sits on the status line so comparing it with a friend's screen is a glance,
         // not a question - see GameVersion
         GUI.Label(new Rect(10, 10, 900, 24), status + "   " + GameVersion.Line);

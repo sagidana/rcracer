@@ -68,6 +68,10 @@ Arcade RC-car racing game made with **Unity 6 (6000.3.24f1)**, Universal Render 
 ├── Packages/manifest.json            Unity packages (URP 17.3, Input System 1.20, ...) - Unity keeps this in sync
 ├── ProjectSettings/                  project-wide settings: physics, quality, tags, input, build scenes, editor version
 ├── build.sh / build.bat              headless Windows build from WSL/Linux or Windows -> Build/Windows/RCRACE.exe
+├── tools/
+│   ├── server.py                     run the Linux server build locally in WSL (start/stop/status/log)
+│   ├── tailscale.py                  open/close the Windows firewall for it, tailnet addresses only
+│   └── mcp-firewall.sh / .ps1        the same, for the MCP servers this WSL setup talks to
 ├── deploy/                           builds the Linux server and installs it as a systemd service over ssh
 │   ├── deploy.sh                         build + upload + restart, all in one
 │   ├── remote_install.sh                 what runs on the server itself
@@ -156,9 +160,17 @@ either install the exact one from the Hub's **Archive** tab, or agree on the new
 ## Multiplayer
 
 Every track is playable online: `RaceBootstrap` spawns your car locally as usual (so driving stays
-responsive) and best-effort connects a `NetClient` to the dedicated server hardcoded in
-`Assets/Scripts/Net/NetConfig.cs` (`142.132.187.130`, UDP port 7777). If the server never answers within
-a few seconds, the game just carries on offline - no menu toggle, no error dialog.
+responsive) and best-effort connects a `NetClient` to the server in `Assets/Scripts/Net/NetConfig.cs`
+(UDP port 7777). If the server never answers within a few seconds, the game just carries on offline -
+no menu toggle, no error dialog.
+
+Which server that is can be set per run, so switching does not mean rebuilding every client:
+
+```
+RCRACE.exe -server=142.132.187.130      the hosted box (deploy/deploy.sh)
+RCRACE.exe -server=rcrace-wsl           a machine by name (tailscale MagicDNS, or any hostname)
+RCRACE.exe                              NetConfig.ServerIP, currently the tailscale node
+```
 
 The server is authoritative: it runs a real instance of each connected player's car (the same
 `CarController` physics as the client, fed by network input instead of a keyboard) and is the only place
@@ -263,6 +275,33 @@ The built server takes which track to host from the command line, default `Stree
 ```
 RCRACE-server -batchmode -nographics -track=Street   # or Desert / Test
 ```
+
+### Running it yourself, on your own network
+
+`tools/server.py` runs the same Linux server build here in WSL instead of on the hosted box:
+
+```
+tools/server.py                       foreground, track Street, ctrl-c stops it
+tools/server.py start --track Desert  background
+tools/server.py stop | status | log
+```
+
+`status` is the one to trust: it reports whether UDP 7777 is actually bound, not just whether a pid
+is on file, and prints the addresses to hand out.
+
+For a friend to reach it, the simplest path is tailscale **inside WSL** (`tailscale up` there): that
+instance becomes its own node with its own address, you share that node with them, and nothing has to
+cross the Windows firewall or a port forward. If instead the listener is reached through the Windows
+host (mirrored networking), the firewall needs to let it in, which is what `tools/tailscale.py` is for:
+
+```
+tools/tailscale.py open               inbound UDP 7777, from 100.64.0.0/10 (the tailnet) only
+tools/tailscale.py close
+tools/tailscale.py status             rules, plus this machine's tailscale address
+```
+
+It opens the port to your tailnet and to nothing else - not the network you happen to be on, not the
+internet. Note that `netsh portproxy`, the usual WSL trick, forwards TCP only and cannot carry this.
 
 ### Deploying
 
