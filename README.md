@@ -37,8 +37,7 @@ Arcade RC-car racing game made with **Unity 6 (6000.3.24f1)**, Universal Render 
 │   │       └── BuildScript.cs            Tools > Build > Windows (x64), and the entry point of build.sh / build.bat
 │   ├── Settings/                     URP render pipeline assets (PC + Mobile), renderers, volume profiles
 │   ├── InputSystem_Actions.inputactions   default Input System action map (CarInput reads the keyboard directly)
-│   ├── Free Adventure Vehicles/      car models used by Car Model switcher: Vehicle14 (bike), 16 (roadster), 19 (buggy)
-│   └── Unity Technologies/CarsAssetPack/   low-poly car pack (FBX/OBJ/Blend). Imported but not used by scene or scripts.
+│   └── Free Adventure Vehicles/      car models used by Car Model switcher: Vehicle14 (bike), 16 (roadster), 19 (buggy)
 ├── Packages/manifest.json            Unity packages (URP 17.3, Input System 1.20, ...) - Unity keeps this in sync
 ├── ProjectSettings/                  project-wide settings: physics, quality, tags, input, build scenes, editor version
 ├── build.sh / build.bat              headless Windows build from WSL/Linux or Windows -> Build/Windows/RCRACE.exe
