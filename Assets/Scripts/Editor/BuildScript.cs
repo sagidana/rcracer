@@ -58,6 +58,10 @@ public static class BuildScript
         options.locationPathName = exe;
         options.target = BuildTarget.StandaloneWindows64;
         options.targetGroup = BuildTargetGroup.Standalone;
+        // must be explicit: Player (0) is also BuildPlayerOptions.subtarget's un-set default, so if this
+        // is left off, a build can silently inherit whatever subtarget the editor last built with (e.g.
+        // Server, from BuildLinuxServer) instead of always producing a normal player here.
+        options.subtarget = (int)StandaloneBuildSubtarget.Player;
         options.options = BuildOptions.None;
 
         Debug.Log("BuildScript: building " + options.scenes.Length + " scene(s) to " + exe);
