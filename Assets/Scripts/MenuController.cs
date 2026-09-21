@@ -121,4 +121,12 @@ public class MenuController : MonoBehaviour
         if (gp.buttonSouth.wasPressedThisFrame || gp.startButton.wasPressedThisFrame) Play();
         if (gp.buttonEast.wasPressedThisFrame) Quit();
     }
+
+    // Drawn here rather than added to the menu's UI canvas so it also shows up in a scene rebuilt by
+    // MenuSceneBuilder. It is the first thing to compare when two people cannot see each other online
+    // (see GameVersion) - the in-race status line shows the same string.
+    void OnGUI()
+    {
+        GUI.Label(new Rect(10, Screen.height - 24, 500, 24), GameVersion.Line);
+    }
 }

@@ -61,7 +61,7 @@ public class NetServer : MonoBehaviour
         {
             socket = new UdpClient(NetConfig.ServerPort);
             socket.BeginReceive(OnReceive, null);
-            Debug.Log("NetServer: listening on UDP " + NetConfig.ServerPort);
+            Debug.Log("NetServer: " + GameVersion.Line + " listening on UDP " + NetConfig.ServerPort);
         }
         catch (Exception e)
         {
@@ -196,9 +196,18 @@ public class NetServer : MonoBehaviour
             switch (tag)
             {
                 case NetProtocol.MsgHello:
-                    byte carIndex = r.ReadByte();
+                    NetProtocol.Hello hello = NetProtocol.ReadHello(r);
+                    // Turned away rather than joined: a client on another wire format would read every
+                    // snapshot as a different packet than the one sent (see NetProtocol.Version), which
+                    // on both screens looks like "we are connected but cannot see each other" instead
+                    // of like the version skew it is.
+                    if (hello.version != NetProtocol.Version)
+                    {
+                        RefuseVersion(from, hello.version);
+                        break;
+                    }
                     Player p;
-                    if (!byEndpoint.TryGetValue(key, out p)) p = Spawn(from, carIndex);
+                    if (!byEndpoint.TryGetValue(key, out p)) p = Spawn(from, hello.carIndex);
                     p.lastSeen = Time.time;
                     SendTo(from, NetProtocol.WriteWelcome(p.id));
                     break;
@@ -225,6 +234,19 @@ public class NetServer : MonoBehaviour
                     break;
             }
         }
+    }
+
+    // Logged once per endpoint, not once per Hello: a refused client keeps retrying twice a second for
+    // its whole connect timeout, and the log is how the person running the server finds out someone is
+    // on an old build at all.
+    readonly HashSet<string> refused = new HashSet<string>();
+
+    void RefuseVersion(IPEndPoint from, byte clientVersion)
+    {
+        SendTo(from, NetProtocol.WriteVersionMismatch(NetProtocol.Version));
+        if (refused.Add(from.ToString()))
+            Debug.LogWarning("NetServer: refused " + from + " - client speaks net version " + clientVersion
+                + ", this server speaks " + NetProtocol.Version + ". That player needs to pull and rebuild.");
     }
 
     Player Spawn(IPEndPoint from, byte carIndex)

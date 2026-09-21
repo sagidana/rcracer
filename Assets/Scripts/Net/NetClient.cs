@@ -25,6 +25,7 @@ public class NetClient : MonoBehaviour
 
     bool welcomed;
     bool gaveUp;   // tried and failed to reach the server; OnGUI shows this so "offline" is never just a guess
+    byte serverVersion;   // the wire version the server reported when it turned this build away, 0 = it did not
     byte playerId;
     float connectStart;
     float lastHelloSent = -99f;
@@ -266,6 +267,17 @@ public class NetClient : MonoBehaviour
                     // just the prompt version of what PruneStale would do a couple of seconds later
                     RemoveRemote(r.ReadByte());
                     break;
+                case NetProtocol.MsgVersionMismatch:
+                    // The server refused us: this build and that server do not speak the same wire
+                    // format, so joining anyway would mean misreading every packet after this one.
+                    // Stopping here (and saying so on screen) is the whole point of the version byte -
+                    // the alternative, which this replaced, is two players both reading "Online" while
+                    // neither can see the other.
+                    serverVersion = r.ReadByte();
+                    Debug.LogError("NetClient: version mismatch - this build speaks net " + NetProtocol.Version
+                        + ", the server speaks net " + serverVersion + ". Pull and rebuild (" + GameVersion.Line + ").");
+                    Shutdown();
+                    break;
                 case NetProtocol.MsgPong:
                     float sentAt = NetProtocol.ReadPingPong(r);
                     float rttMs = Mathf.Max(0f, Time.time - sentAt) * 1000f;
@@ -464,9 +476,12 @@ public class NetClient : MonoBehaviour
     void OnGUI()
     {
         string status;
-        if (gaveUp) status = "Offline (solo) - could not reach the server";
+        if (serverVersion != 0) status = "Offline - version mismatch: this build speaks net " + NetProtocol.Version + ", the server speaks net " + serverVersion + ". Pull and rebuild.";
+        else if (gaveUp) status = "Offline (solo) - could not reach the server";
         else if (welcomed) status = "Online - " + (remotes.Count + 1) + " car(s)" + (smoothedRttMs >= 0f ? " - " + smoothedRttMs.ToString("0") + " ms" : " - measuring ping...");
         else status = "Connecting...";
-        GUI.Label(new Rect(10, 10, 500, 24), status);
+        // the build stamp sits on the status line so comparing it with a friend's screen is a glance,
+        // not a question - see GameVersion
+        GUI.Label(new Rect(10, 10, 900, 24), status + "   " + GameVersion.Line);
     }
 }

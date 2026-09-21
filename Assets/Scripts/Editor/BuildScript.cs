@@ -52,6 +52,7 @@ public static class BuildScript
     {
         Directory.CreateDirectory(outputDir);
         string exe = Path.Combine(outputDir, PlayerSettings.productName + ".exe");
+        string previousVersion = StampVersion();
 
         BuildPlayerOptions options = new BuildPlayerOptions();
         options.scenes = EnabledScenes();
@@ -65,7 +66,14 @@ public static class BuildScript
         options.options = BuildOptions.None;
 
         Debug.Log("BuildScript: building " + options.scenes.Length + " scene(s) to " + exe);
-        return BuildPipeline.BuildPlayer(options);
+        try
+        {
+            return BuildPipeline.BuildPlayer(options);
+        }
+        finally
+        {
+            RestoreVersion(previousVersion);
+        }
     }
 
     [MenuItem("Tools/Build/Linux Server")]
@@ -90,6 +98,7 @@ public static class BuildScript
     {
         Directory.CreateDirectory(outputDir);
         string exe = Path.Combine(outputDir, "RCRACE-server");
+        string previousVersion = StampVersion();
 
         BuildPlayerOptions options = new BuildPlayerOptions();
         options.scenes = ServerScenes;
@@ -100,7 +109,76 @@ public static class BuildScript
         options.options = BuildOptions.None;
 
         Debug.Log("BuildScript: building dedicated server, " + options.scenes.Length + " scene(s), to " + exe);
-        return BuildPipeline.BuildPlayer(options);
+        try
+        {
+            return BuildPipeline.BuildPlayer(options);
+        }
+        finally
+        {
+            RestoreVersion(previousVersion);
+        }
+    }
+
+    // Stamps the build with the commit it came from, so "are we on the same build?" is something two
+    // players read off their screens (see GameVersion) instead of trying to remember. Taken from git
+    // rather than typed into ProjectSettings by hand: a version number somebody has to remember to
+    // bump is the one that silently stays wrong - which is exactly how two builds end up on different
+    // wire formats, both reporting "Online", unable to see each other.
+    //
+    // Returns the version to put back afterwards: the stamp belongs to the build, not to the checkout,
+    // and leaving it in ProjectSettings.asset would mean a modified file after every single build.
+    static string StampVersion()
+    {
+        string previous = PlayerSettings.bundleVersion;
+        string commit = Git("rev-parse --short HEAD");
+        string version;
+        if (string.IsNullOrEmpty(commit))
+        {
+            // no git on PATH, or not a checkout: the build time at least still differs between two
+            // people's builds, instead of claiming they match
+            version = "nogit-" + DateTime.Now.ToString("yyyy-MM-dd-HHmm");
+            Debug.LogWarning("BuildScript: git not available here, stamping " + version + " instead of the commit.");
+        }
+        else
+        {
+            version = Git("log -1 --format=%cd --date=format:%Y-%m-%d") + "." + commit;
+            // uncommitted edits are the other way two builds differ while claiming the same commit
+            if (!string.IsNullOrEmpty(Git("status --porcelain"))) version = version + "+edits";
+        }
+        PlayerSettings.bundleVersion = version;
+        Debug.Log("BuildScript: version " + version + ", net protocol " + NetProtocol.Version);
+        return previous;
+    }
+
+    static void RestoreVersion(string previous)
+    {
+        PlayerSettings.bundleVersion = previous;
+        AssetDatabase.SaveAssets();
+    }
+
+    static string Git(string args)
+    {
+        try
+        {
+            System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo("git", args);
+            psi.WorkingDirectory = ProjectRoot();
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            using (System.Diagnostics.Process git = System.Diagnostics.Process.Start(psi))
+            {
+                string output = git.StandardOutput.ReadToEnd();
+                git.StandardError.ReadToEnd();
+                git.WaitForExit(10000);
+                if (git.ExitCode != 0) return "";
+                return output.Trim();
+            }
+        }
+        catch (Exception)
+        {
+            return "";
+        }
     }
 
     static string[] EnabledScenes()

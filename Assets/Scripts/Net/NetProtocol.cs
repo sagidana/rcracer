@@ -14,6 +14,15 @@ public static class NetProtocol
     public const byte MsgPlayerLeft = 5;   // server -> client: that player disconnected
     public const byte MsgPing = 6;         // client -> server: "what's my round trip time?" (echo this back unchanged)
     public const byte MsgPong = 7;         // server -> client: echo of a Ping's payload
+    public const byte MsgVersionMismatch = 8;   // server -> client: "your build does not speak my wire format"
+
+    // The wire format's own version. BUMP IT in the same commit as any change to what the messages
+    // below contain - a field added to a snapshot shifts every field after it, so a client one
+    // version behind does not read slightly stale data, it reads a different packet entirely (a
+    // serverTick byte as a player count, a throttle byte as a player id). That failure is silent
+    // and looks exactly like a netcode bug: both players connect, neither can see the other. The
+    // server checks this at Hello and turns such a client away instead of letting it join blind.
+    public const byte Version = 1;
 
     public static byte[] WriteHello(byte carIndex)
     {
@@ -22,6 +31,34 @@ public static class NetProtocol
         {
             w.Write(MsgHello);
             w.Write(carIndex);
+            w.Write(Version);
+            return ms.ToArray();
+        }
+    }
+
+    public struct Hello { public byte carIndex; public byte version; }
+
+    // Hello is the only message an out-of-date client is allowed to be wrong about, so the version byte
+    // lives at the END of it: builds from before versioning existed send just the car index, and rather
+    // than throwing on the missing byte (which would drop the packet and leave that player waiting on a
+    // server that never answers) they read back as version 0, which matches nothing and is answered with
+    // a VersionMismatch they can act on.
+    public static Hello ReadHello(BinaryReader r)
+    {
+        Hello h;
+        h.carIndex = r.ReadByte();
+        h.version = 0;
+        if (r.BaseStream.Position < r.BaseStream.Length) h.version = r.ReadByte();
+        return h;
+    }
+
+    public static byte[] WriteVersionMismatch(byte serverVersion)
+    {
+        using (MemoryStream ms = new MemoryStream())
+        using (BinaryWriter w = new BinaryWriter(ms))
+        {
+            w.Write(MsgVersionMismatch);
+            w.Write(serverVersion);
             return ms.ToArray();
         }
     }

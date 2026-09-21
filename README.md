@@ -17,6 +17,8 @@ Arcade RC-car racing game made with **Unity 6 (6000.3.24f1)**, Universal Render 
 │   │   │                             Reads CarInput. Tick(dt) is the whole physics step, so a replay can drive it
 │   │   │                             by hand instead of waiting for FixedUpdate.
 │   │   ├── GameSelection.cs          what the menu chose (car, track), shared across scene loads
+│   │   ├── GameVersion.cs            what build this is: the git stamp + the wire version, shown in the menu
+│   │   │                             and on the in-race status line so two players can compare at a glance
 │   │   ├── MenuController.cs         the menu: pick a car and a track, or quit
 │   │   ├── RaceBootstrap.cs          in every track scene: spawns the car, wires the camera, adds NetClient -
 │   │   │                             or NetServer instead when this is a dedicated server build
@@ -183,6 +185,32 @@ input rather than by guessing:
 Measured driving at full throttle with continuous weaving, the worst single-frame movement the car's own
 velocity does not account for is 0.34m at 60ms round trip and 0.29m at 250ms, against 0.24m for the same
 driving with no networking at all. Standing still while connected, the car does not move at all.
+
+### Versions: are we on the same build?
+
+The menu (bottom left) and the in-race status line both show the same string:
+
+```
+v2026-09-21.0e3e12e (net 1)
+```
+
+* the first part is the commit the build was made from (`+edits` if the tree was dirty). `BuildScript`
+  reads it from git at build time - nothing to bump by hand. Two players with the same string are
+  running the exact same code.
+* `net N` is `NetProtocol.Version`, the **wire format**. This is the one that decides whether a client
+  and the server can talk: the client sends it in its Hello, and a server that speaks a different
+  version refuses the join and says so on the client's screen ("version mismatch ... pull and rebuild")
+  instead of letting it in to misread every packet.
+
+Different builds of the *same* `net` version still race together fine - that is most commits. Bump
+`NetProtocol.Version` in the same commit as any change to what the messages contain, because a client
+one version behind does not read slightly stale data, it reads a different packet entirely: a field
+added to the snapshot shifts every field after it, so one side reads a tick counter as a player count
+and gives up on the packet. On screen that looks exactly like a netcode bug - both players "Online",
+neither able to see the other - which is what the version check now turns into a clear message.
+
+After a protocol change, redeploy the server (`deploy/deploy.sh`) **and** rebuild every client;
+old clients from before versioning existed simply fall back to "could not reach the server".
 
 ### Running the server
 
