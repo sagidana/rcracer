@@ -77,14 +77,16 @@ public static class MenuSceneBuilder
         shadow.effectColor = new Color(0f, 0f, 0f, 0.6f);
         shadow.effectDistance = new Vector2(4f, -4f);
 
-        // left column with the two choice rows and the play button
-        GameObject panel = MakePanel(canvasGo.transform, "Panel", new Vector2(0f, 0.5f), new Vector2(90f, -40f), new Vector2(560f, 470f), new Color(0f, 0f, 0f, 0.45f));
+        // left column with the two choice rows, the play button and the exit button
+        GameObject panel = MakePanel(canvasGo.transform, "Panel", new Vector2(0f, 0.5f), new Vector2(90f, -40f), new Vector2(560f, 550f), new Color(0f, 0f, 0f, 0.45f));
         menu.carLabel = MakeRow(panel.transform, "Car", "CAR", font, 150f, menu.PrevCar, menu.NextCar);
         menu.trackLabel = MakeRow(panel.transform, "Track", "TRACK", font, 20f, menu.PrevTrack, menu.NextTrack);
-        Button play = MakeButton(panel.transform, "PlayButton", "PLAY", font, 54, new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(300f, 84f), new Color(0.85f, 0.35f, 0.12f));
+        Button play = MakeButton(panel.transform, "PlayButton", "PLAY", font, 54, new Vector2(0.5f, 0f), new Vector2(0f, 80f), new Vector2(300f, 84f), new Color(0.85f, 0.35f, 0.12f));
         UnityEventTools.AddPersistentListener(play.onClick, new UnityAction(menu.Play));
+        Button exit = MakeButton(panel.transform, "ExitButton", "EXIT", font, 32, new Vector2(0.5f, 0f), new Vector2(0f, 16f), new Vector2(200f, 56f), new Color(1f, 1f, 1f, 0.12f));
+        UnityEventTools.AddPersistentListener(exit.onClick, new UnityAction(menu.Quit));
 
-        MakeText(canvasGo.transform, "Hint", "Keyboard: arrows / WASD drive, Space handbrake, R reset, Esc menu     Gamepad: R2 gas, L2 brake, stick steer, Square handbrake, Triangle reset, Options menu", font, 22, FontStyle.Normal, new Vector2(0.5f, 0f), new Vector2(0f, 34f), new Vector2(1800f, 40f), new Color(1f, 1f, 1f, 0.7f));
+        MakeText(canvasGo.transform, "Hint", "Keyboard: arrows / WASD choose, Enter / Space play, Esc exit     Gamepad: d-pad / stick choose, Cross play, Circle exit", font, 22, FontStyle.Normal, new Vector2(0.5f, 0f), new Vector2(0f, 34f), new Vector2(1800f, 40f), new Color(1f, 1f, 1f, 0.7f));
 
         EditorSceneManager.SaveScene(scene, ScenePath);
         TrackSceneBuilder.UpdateBuildSettings();

@@ -3,10 +3,10 @@ using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
-// The start menu: pick a car and a track, press Play.
+// The start menu: pick a car and a track, press Play (or Exit to close the game).
 // The chosen car turns slowly on the podium behind the UI (a prefab instance with its physics switched off).
-// Keyboard: left/right = car, up/down = track, Enter or Space = play. The buttons do the same with the mouse.
-// Gamepad: d-pad or left stick = choose, Cross (A) or Options = play.
+// Keyboard: left/right = car, up/down = track, Enter or Space = play, Esc = exit. The buttons do the same with the mouse.
+// Gamepad: d-pad or left stick = choose, Cross (A) or Options = play, Circle (B) = exit.
 public class MenuController : MonoBehaviour
 {
     public Text carLabel;
@@ -38,6 +38,16 @@ public class MenuController : MonoBehaviour
         GameSelection.Track = GameSelection.Tracks[trackIndex];
         PlayerPrefs.Save();
         SceneManager.LoadScene(GameSelection.Track);
+    }
+
+    public void Quit()
+    {
+        PlayerPrefs.Save();
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
 
     void Step(ref int index, int dir, int count)
@@ -94,6 +104,7 @@ public class MenuController : MonoBehaviour
             if (kb.upArrowKey.wasPressedThisFrame || kb.wKey.wasPressedThisFrame) PrevTrack();
             if (kb.downArrowKey.wasPressedThisFrame || kb.sKey.wasPressedThisFrame) NextTrack();
             if (kb.enterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame) Play();
+            if (kb.escapeKey.wasPressedThisFrame) Quit();
         }
 
         Gamepad gp = Gamepad.current;
@@ -108,5 +119,6 @@ public class MenuController : MonoBehaviour
         if (gp.dpad.up.wasPressedThisFrame || flickUp) PrevTrack();
         if (gp.dpad.down.wasPressedThisFrame || flickDown) NextTrack();
         if (gp.buttonSouth.wasPressedThisFrame || gp.startButton.wasPressedThisFrame) Play();
+        if (gp.buttonEast.wasPressedThisFrame) Quit();
     }
 }
