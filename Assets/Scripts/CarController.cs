@@ -38,6 +38,10 @@ public class CarController : MonoBehaviour
     CarInput input;
     FollowCamera follow;
     PhysicsMaterial bodyMaterial;
+    // whichever PhysicsScene this car's own GameObject lives in - normally the main scene, but a car
+    // instantiated inside an isolated PhysicsScene (see NetPredictor) must cast its wheels against
+    // THAT scene's geometry, never the main scene's, or the two worlds bleed into each other
+    PhysicsScene physicsScene;
 
     float steerAngle;
     float gripFront = 1f, gripRear = 1f;
@@ -55,6 +59,7 @@ public class CarController : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         input = GetComponent<CarInput>();
+        physicsScene = gameObject.scene.GetPhysicsScene();
 
         if (body.setFastPhysicsStep && Time.fixedDeltaTime > 0.0101f) Time.fixedDeltaTime = 0.01f;
 
@@ -88,6 +93,15 @@ public class CarController : MonoBehaviour
         ApplyCollisionMaterial();
         Camera cam = Camera.main;
         if (cam != null) follow = cam.GetComponent<FollowCamera>();
+    }
+
+    // Awake() caches physicsScene from gameObject.scene, which is only correct if the object is
+    // already in its final scene by then. NetPredictor moves a freshly-instantiated shadow car into
+    // an isolated scene AFTER Instantiate() (Awake() has already run by that point), so it calls this
+    // afterwards to re-cache the right one. Real, normally-placed cars never need to call this.
+    public void RefreshPhysicsScene()
+    {
+        physicsScene = gameObject.scene.GetPhysicsScene();
     }
 
     void ApplyBodySettings()
@@ -177,7 +191,7 @@ public class CarController : MonoBehaviour
         int groundedCount = 0;
         foreach (CarWheel w in Wheels)
         {
-            w.Cast(t, rb, suspension.travel, suspension.wheelRadiusScale, lift, props.lightPropMass);
+            w.Cast(t, rb, suspension.travel, suspension.wheelRadiusScale, lift, props.lightPropMass, physicsScene);
             if (w.grounded) groundedCount++;
         }
         IsGrounded = groundedCount > 0;

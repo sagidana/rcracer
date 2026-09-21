@@ -30,12 +30,14 @@ public class CarWheel
 
     // Sweeps the wheel sphere down from the mount and finds what it touches.
     // lift: the sweep starts a bit higher than the mount so it never starts inside the ground.
-    public void Cast(Transform car, Rigidbody body, float travel, float radiusScale, float lift, float lightMass)
+    // physicsScene: cast against THIS scene's geometry specifically, never the global/default one -
+    // a car living in an isolated PhysicsScene (see NetPredictor) must never sense the main scene.
+    public void Cast(Transform car, Rigidbody body, float travel, float radiusScale, float lift, float lightMass, PhysicsScene physicsScene)
     {
         Vector3 up = car.up;
         Vector3 origin = car.TransformPoint(mountLocal) + up * lift;
         float r = radius * radiusScale;
-        int n = Physics.SphereCastNonAlloc(origin, r, -up, hitBuffer, travel + lift, ~0, QueryTriggerInteraction.Ignore);
+        int n = physicsScene.SphereCast(origin, r, -up, hitBuffer, travel + lift, ~0, QueryTriggerInteraction.Ignore);
 
         float best = float.MaxValue;
         int bestIndex = -1;
