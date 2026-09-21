@@ -22,10 +22,27 @@ public class NetServer : MonoBehaviour
         public IPEndPoint endpoint;
         public GameObject car;
         public CarInput input;
+        public CarController controller;
         public Rigidbody rb;
         public float lastSeen;
-        public uint lastAppliedSeq;   // so a redundant, already-applied entry in a later packet's history is ignored
+        public uint lastAppliedSeq;   // the newest input tick already applied: older/duplicate ones are ignored
+        // input ticks received but not yet stepped, oldest first. Kept in tick order so the car is
+        // driven through exactly the sequence the player actually held, one tick per physics step.
+        public readonly SortedDictionary<uint, NetProtocol.InputSample> pending = new SortedDictionary<uint, NetProtocol.InputSample>();
+        public int minPending = int.MaxValue;   // shallowest the queue got since the last drain check
+        public float nextDrainCheck;
     }
+
+    // How deep the pending queue should sit. Some backlog is required, not merely tolerated: an input
+    // is only in hand about half a round trip after it was pressed, so the server must always be
+    // consuming ticks slightly old or it would starve between packets. Depth beyond that is pure added
+    // lag, and the depth the queue happens to settle at is an accident of when the first packet landed,
+    // so it is actively drained back down (see DrainBacklog) instead of being left wherever it started.
+    const int TargetPendingTicks = 2;
+    const float DrainCheckInterval = 0.5f;
+    // A hard ceiling for the pathological case (a client whose clock runs fast, a long stall): past this
+    // the oldest ticks are dropped outright rather than letting the server fall ever further behind.
+    const int MaxPendingTicks = 12;
 
     UdpClient socket;
     readonly Dictionary<string, Player> byEndpoint = new Dictionary<string, Player>();   // key = endpoint.ToString()
@@ -76,6 +93,67 @@ public class NetServer : MonoBehaviour
         }
     }
 
+    // One physics tick = one input tick, per player. The cars' own CarController.FixedUpdate is
+    // disabled (see Spawn) so that this ordering is guaranteed: apply the tick's input first, then run
+    // that car's physics step with it. Left to Unity's own callback order, a car could just as easily
+    // step before its input arrived, which would make the server's simulation something the client
+    // could never reproduce by replaying the same ticks.
+    void FixedUpdate()
+    {
+        float dt = Time.fixedDeltaTime;
+        foreach (Player p in byEndpoint.Values)
+        {
+            if (p.controller == null) continue;
+            ConsumeInput(p);
+            p.controller.Tick(dt);
+        }
+    }
+
+    void ConsumeInput(Player p)
+    {
+        while (p.pending.Count > MaxPendingTicks) DropOldest(p);
+        DrainBacklog(p);
+
+        uint next = 0;
+        bool have = false;
+        foreach (uint seq in p.pending.Keys) { next = seq; have = true; break; }
+        // nothing queued: the next packet has not arrived yet, so hold the controls the player last
+        // had. lastAppliedSeq deliberately does NOT advance - this tick was the server's guess, not
+        // the player's input, so the client must keep it unconfirmed.
+        if (!have) return;
+
+        NetProtocol.InputSample s = p.pending[next];
+        p.pending.Remove(next);
+        p.lastAppliedSeq = next;
+        p.input.SetNetworkInput(s.throttle, s.steer, s.handbrake, s.reset);
+    }
+
+    // The queue only ever needs to be as deep as the worst late packet: whatever depth it never drops
+    // below is backlog nobody is waiting on, and every tick of it is a tick of extra lag between a key
+    // being pressed and the server acting on it. Judged on the SHALLOWEST depth seen over an interval
+    // (never the current one, which swings by a whole packet's worth of ticks), and drained a single
+    // tick at a time, so a genuinely jittery connection keeps the depth it actually uses.
+    void DrainBacklog(Player p)
+    {
+        if (p.pending.Count < p.minPending) p.minPending = p.pending.Count;
+        if (Time.time < p.nextDrainCheck) return;
+
+        p.nextDrainCheck = Time.time + DrainCheckInterval;
+        if (p.minPending > TargetPendingTicks && p.pending.Count > TargetPendingTicks) DropOldest(p);
+        p.minPending = int.MaxValue;
+    }
+
+    // Skips one input tick. It is acknowledged as though applied, so the client stops replaying it -
+    // the alternative, silently never applying it, would leave the client re-simulating a tick the
+    // server's own state can never reflect.
+    void DropOldest(Player p)
+    {
+        uint oldest = 0;
+        foreach (uint seq in p.pending.Keys) { oldest = seq; break; }
+        p.pending.Remove(oldest);
+        if (oldest > p.lastAppliedSeq) p.lastAppliedSeq = oldest;
+    }
+
     void DrainInbox()
     {
         while (true)
@@ -123,15 +201,12 @@ public class NetServer : MonoBehaviour
                     if (byEndpoint.TryGetValue(key, out pl))
                     {
                         pl.lastSeen = Time.time;
-                        // the packet carries several recent samples for loss/reorder resilience (see
-                        // NetClient.Update) - only the newest one this player has not applied yet matters
-                        NetProtocol.InputSample? newest = null;
+                        // the packet overlaps the previous one (see NetClient), so most of these ticks
+                        // are already known: queue only the ones still ahead of what has been applied
                         foreach (NetProtocol.InputSample s in history)
-                            if (s.seq > pl.lastAppliedSeq && (newest == null || s.seq > newest.Value.seq)) newest = s;
-                        if (newest != null)
                         {
-                            pl.lastAppliedSeq = newest.Value.seq;
-                            pl.input.SetNetworkInput(newest.Value.throttle, newest.Value.steer, newest.Value.handbrake, newest.Value.reset);
+                            if (s.seq <= pl.lastAppliedSeq) continue;
+                            pl.pending[s.seq] = s;
                         }
                     }
                     break;
@@ -164,6 +239,8 @@ public class NetServer : MonoBehaviour
         CarInput input = car.GetComponent<CarInput>();
         if (input == null) input = car.AddComponent<CarInput>();
         input.NetworkControlled = true;
+        CarController controller = car.GetComponent<CarController>();
+        if (controller != null) controller.enabled = false;   // stepped by FixedUpdate above, one input tick at a time
 
         Player p = new Player
         {
@@ -172,6 +249,7 @@ public class NetServer : MonoBehaviour
             endpoint = from,
             car = car,
             input = input,
+            controller = controller,
             rb = car.GetComponent<Rigidbody>(),
         };
         byEndpoint[from.ToString()] = p;
@@ -216,6 +294,7 @@ public class NetServer : MonoBehaviour
                 rot = p.rb.rotation,
                 vel = p.rb.linearVelocity,
                 angVel = p.rb.angularVelocity,
+                lastAppliedSeq = p.lastAppliedSeq,
             };
         }
         byte[] data = NetProtocol.WriteSnapshot(states);

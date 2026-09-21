@@ -37,13 +37,16 @@ public static class NetProtocol
         }
     }
 
+    // One physics tick's worth of controls. seq is the client's own tick counter: the client samples
+    // its input once per FixedUpdate and the server applies exactly one sample per FixedUpdate, so a
+    // sample means "this is what was held during tick N", not merely "this is the newest input".
+    // That one-to-one correspondence is what lets the client re-simulate its unconfirmed ticks and
+    // land on the same result the server did (see NetPredictor).
     public struct InputSample { public uint seq; public float throttle, steer; public bool handbrake, reset; }
 
-    // Carries the current input PLUS the last few samples before it (each with an increasing sequence
-    // number), so a single lost or badly-reordered UDP packet does not leave the server driving on a
-    // stale value until the next packet happens to arrive - the very next packet's redundant history
-    // backfills the gap. The receiver only needs the entry with the highest seq it has not seen yet
-    // (see NetServer.Handle); it does not need to apply every entry in order.
+    // Carries the newest tick PLUS the several ticks before it, so a lost or reordered UDP packet does
+    // not punch a hole in the server's input stream - the next packet's overlap backfills it. Ticks
+    // already applied are ignored by seq (see NetServer.ConsumeInput).
     public static byte[] WriteInput(InputSample[] history)
     {
         using (MemoryStream ms = new MemoryStream())
@@ -87,7 +90,10 @@ public static class NetProtocol
     // curve the car is actually turning through, instead of a straight line from linear velocity alone -
     // a car mid-corner does not travel straight, so straight-line extrapolation systematically predicts
     // the wrong spot exactly while turning at speed, which is the most common time a jump is visible.
-    public struct PlayerState { public byte playerId; public byte carIndex; public Vector3 pos; public Quaternion rot; public Vector3 vel; public Vector3 angVel; }
+    // lastAppliedSeq is the acknowledgement: the last input tick the server had actually applied to this
+    // player's car when it took this snapshot. The owning client uses it to know exactly which of its
+    // own inputs are still unconfirmed, and therefore which ones must be replayed on top of this state.
+    public struct PlayerState { public byte playerId; public byte carIndex; public Vector3 pos; public Quaternion rot; public Vector3 vel; public Vector3 angVel; public uint lastAppliedSeq; }
 
     public static byte[] WriteSnapshot(PlayerState[] players)
     {
@@ -104,6 +110,7 @@ public static class NetProtocol
                 WriteQuaternion(w, p.rot);
                 WriteVector3(w, p.vel);
                 WriteVector3(w, p.angVel);
+                w.Write(p.lastAppliedSeq);
             }
             return ms.ToArray();
         }
@@ -122,6 +129,7 @@ public static class NetProtocol
             p.rot = ReadQuaternion(r);
             p.vel = ReadVector3(r);
             p.angVel = ReadVector3(r);
+            p.lastAppliedSeq = r.ReadUInt32();
             result[i] = p;
         }
         return result;

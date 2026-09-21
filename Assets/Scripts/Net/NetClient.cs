@@ -30,8 +30,21 @@ public class NetClient : MonoBehaviour
     float lastHelloSent = -99f;
     float lastInputSent = -99f;
     uint inputSeq;
-    readonly LinkedList<NetProtocol.InputSample> inputHistory = new LinkedList<NetProtocol.InputSample>();
-    const int InputHistoryLength = 5;   // survives up to 4 consecutive lost/reordered Input packets in a row
+    bool resetLatched;   // so one press of R becomes one reset tick, not one per tick until it is released
+
+    // Every input tick this client has produced that the server has not acknowledged yet, oldest first.
+    // This is the replay buffer: after a correction, these are exactly the ticks the server had not
+    // seen when it took that snapshot, so re-simulating them on top of it reproduces "now".
+    readonly List<NetProtocol.InputSample> unconfirmed = new List<NetProtocol.InputSample>();
+    uint lastAckedSeq;
+
+    // Each packet repeats the last few ticks so one lost packet does not leave a hole in the server's
+    // input stream. Physics runs at 100Hz and packets go out at SendRate (30Hz), so ~4 ticks are new
+    // each time; 12 covers roughly two consecutive lost packets.
+    const int TicksPerPacket = 12;
+    // If the server stops acknowledging entirely (a dropout), stop growing the buffer: beyond this the
+    // connection is broken badly enough that a replay of it would be meaningless anyway.
+    const int MaxUnconfirmed = 300;
 
     // latency, measured (not assumed): a ping carries our own clock reading, the server echoes it back
     // unchanged, so (now - thatValue) on the reply is a real round trip time over this connection
@@ -117,24 +130,7 @@ public class NetClient : MonoBehaviour
             return;
         }
 
-        if (Time.time - lastInputSent >= 1f / NetConfig.SendRate)
-        {
-            lastInputSent = Time.time;
-            NetProtocol.InputSample sample = new NetProtocol.InputSample
-            {
-                seq = ++inputSeq,
-                throttle = localInput != null ? localInput.Throttle : 0f,
-                steer = localInput != null ? localInput.Steer : 0f,
-                handbrake = localInput != null && localInput.Handbrake,
-                reset = localInput != null && localInput.PeekReset(),
-            };
-            inputHistory.AddLast(sample);
-            while (inputHistory.Count > InputHistoryLength) inputHistory.RemoveFirst();
-
-            NetProtocol.InputSample[] history = new NetProtocol.InputSample[inputHistory.Count];
-            inputHistory.CopyTo(history, 0);
-            Send(NetProtocol.WriteInput(history));
-        }
+        if (Time.time - lastInputSent >= 1f / NetConfig.SendRate) SendInput();
 
         if (Time.time - lastPingSent >= NetConfig.PingInterval)
         {
@@ -143,6 +139,48 @@ public class NetClient : MonoBehaviour
         }
 
         ReconcileTick();
+    }
+
+    // Sampled here, not in Update, because one sample must mean exactly one physics tick: the local car
+    // steps once per FixedUpdate with whatever CarInput holds, and the server will step its copy once
+    // per sample. CarInput only changes in Update, so within a frame every fixed step (there may be
+    // several) reads the same controls this does - the sample is what the car really used that tick.
+    void FixedUpdate()
+    {
+        if (socket == null || !welcomed) return;
+
+        bool reset = false;
+        if (localInput != null && localInput.PeekReset())
+        {
+            reset = !resetLatched;
+            resetLatched = true;
+        }
+        else
+        {
+            resetLatched = false;
+        }
+
+        NetProtocol.InputSample sample = new NetProtocol.InputSample
+        {
+            seq = ++inputSeq,
+            throttle = localInput != null ? localInput.Throttle : 0f,
+            steer = localInput != null ? localInput.Steer : 0f,
+            handbrake = localInput != null && localInput.Handbrake,
+            reset = reset,
+        };
+        unconfirmed.Add(sample);
+        if (unconfirmed.Count > MaxUnconfirmed) unconfirmed.RemoveRange(0, unconfirmed.Count - MaxUnconfirmed);
+    }
+
+    void SendInput()
+    {
+        lastInputSent = Time.time;
+        if (unconfirmed.Count == 0) return;
+
+        int count = Mathf.Min(TicksPerPacket, unconfirmed.Count);
+        NetProtocol.InputSample[] history = new NetProtocol.InputSample[count];
+        unconfirmed.CopyTo(unconfirmed.Count - count, history, 0, count);
+        Send(NetProtocol.WriteInput(history));
     }
 
     void DrainInbox()
@@ -214,6 +252,7 @@ public class NetClient : MonoBehaviour
                 lastServerAngVel = p.angVel;
                 lastServerSnapshotTime = Time.time;
                 haveServerState = true;
+                AckInputs(p.lastAppliedSeq);
                 continue;
             }
 
@@ -228,6 +267,18 @@ public class NetClient : MonoBehaviour
         // players in the snapshot but not the world (a slow PlayerLeft, or we joined mid-game after
         // they were already gone) are pruned lazily here rather than needing a second message type
         if (remotes.Count > players.Length + 4) PruneStale(seen);
+    }
+
+    // Everything the server has now stepped is settled history: its result is baked into the snapshot
+    // that carried this acknowledgement, so those ticks must not be replayed on top of it again.
+    void AckInputs(uint ackedSeq)
+    {
+        if (ackedSeq <= lastAckedSeq) return;
+        lastAckedSeq = ackedSeq;
+
+        int drop = 0;
+        while (drop < unconfirmed.Count && unconfirmed[drop].seq <= ackedSeq) drop++;
+        if (drop > 0) unconfirmed.RemoveRange(0, drop);
     }
 
     void PruneStale(HashSet<byte> seen)
