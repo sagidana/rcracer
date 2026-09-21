@@ -1,0 +1,119 @@
+using System.IO;
+using System.Net;
+using UnityEngine;
+
+// The wire format. Every UDP packet starts with one tag byte. Everything is "last value wins" -
+// there is no ordering/ack layer, which is fine here because every message is either idempotent
+// (Input, Snapshot: only the latest matters) or safely re-sendable (Hello).
+public static class NetProtocol
+{
+    public const byte MsgHello = 1;        // client -> server: "I want to join"
+    public const byte MsgWelcome = 2;      // server -> client: "you are player N"
+    public const byte MsgInput = 3;        // client -> server: current control state
+    public const byte MsgSnapshot = 4;     // server -> client: every player's transform
+    public const byte MsgPlayerLeft = 5;   // server -> client: that player disconnected
+
+    public static byte[] WriteHello(byte carIndex)
+    {
+        using (MemoryStream ms = new MemoryStream())
+        using (BinaryWriter w = new BinaryWriter(ms))
+        {
+            w.Write(MsgHello);
+            w.Write(carIndex);
+            return ms.ToArray();
+        }
+    }
+
+    public static byte[] WriteWelcome(byte playerId)
+    {
+        using (MemoryStream ms = new MemoryStream())
+        using (BinaryWriter w = new BinaryWriter(ms))
+        {
+            w.Write(MsgWelcome);
+            w.Write(playerId);
+            return ms.ToArray();
+        }
+    }
+
+    public static byte[] WriteInput(float throttle, float steer, bool handbrake, bool reset)
+    {
+        using (MemoryStream ms = new MemoryStream())
+        using (BinaryWriter w = new BinaryWriter(ms))
+        {
+            w.Write(MsgInput);
+            w.Write(throttle);
+            w.Write(steer);
+            byte flags = 0;
+            if (handbrake) flags |= 1;
+            if (reset) flags |= 2;
+            w.Write(flags);
+            return ms.ToArray();
+        }
+    }
+
+    public struct InputMsg { public float throttle, steer; public bool handbrake, reset; }
+    public static InputMsg ReadInput(BinaryReader r)
+    {
+        InputMsg m;
+        m.throttle = r.ReadSingle();
+        m.steer = r.ReadSingle();
+        byte flags = r.ReadByte();
+        m.handbrake = (flags & 1) != 0;
+        m.reset = (flags & 2) != 0;
+        return m;
+    }
+
+    public struct PlayerState { public byte playerId; public byte carIndex; public Vector3 pos; public Quaternion rot; public Vector3 vel; }
+
+    public static byte[] WriteSnapshot(PlayerState[] players)
+    {
+        using (MemoryStream ms = new MemoryStream())
+        using (BinaryWriter w = new BinaryWriter(ms))
+        {
+            w.Write(MsgSnapshot);
+            w.Write((byte)players.Length);
+            foreach (PlayerState p in players)
+            {
+                w.Write(p.playerId);
+                w.Write(p.carIndex);
+                WriteVector3(w, p.pos);
+                WriteQuaternion(w, p.rot);
+                WriteVector3(w, p.vel);
+            }
+            return ms.ToArray();
+        }
+    }
+
+    public static PlayerState[] ReadSnapshot(BinaryReader r)
+    {
+        int n = r.ReadByte();
+        PlayerState[] result = new PlayerState[n];
+        for (int i = 0; i < n; i++)
+        {
+            PlayerState p;
+            p.playerId = r.ReadByte();
+            p.carIndex = r.ReadByte();
+            p.pos = ReadVector3(r);
+            p.rot = ReadQuaternion(r);
+            p.vel = ReadVector3(r);
+            result[i] = p;
+        }
+        return result;
+    }
+
+    public static byte[] WritePlayerLeft(byte playerId)
+    {
+        using (MemoryStream ms = new MemoryStream())
+        using (BinaryWriter w = new BinaryWriter(ms))
+        {
+            w.Write(MsgPlayerLeft);
+            w.Write(playerId);
+            return ms.ToArray();
+        }
+    }
+
+    static void WriteVector3(BinaryWriter w, Vector3 v) { w.Write(v.x); w.Write(v.y); w.Write(v.z); }
+    static Vector3 ReadVector3(BinaryReader r) { return new Vector3(r.ReadSingle(), r.ReadSingle(), r.ReadSingle()); }
+    static void WriteQuaternion(BinaryWriter w, Quaternion q) { w.Write(q.x); w.Write(q.y); w.Write(q.z); w.Write(q.w); }
+    static Quaternion ReadQuaternion(BinaryReader r) { return new Quaternion(r.ReadSingle(), r.ReadSingle(), r.ReadSingle(), r.ReadSingle()); }
+}

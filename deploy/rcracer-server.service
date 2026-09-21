@@ -1,0 +1,18 @@
+[Unit]
+Description=RCRACE dedicated server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/rcracer-server
+ExecStart=/opt/rcracer-server/RCRACE-server -batchmode -nographics -logFile /opt/rcracer-server/server.log -track=Street
+Restart=on-failure
+RestartSec=3
+# Unity buffers stdout heavily under systemd; make its own log file (-logFile above) the source of truth,
+# and unbuffer whatever still goes to the journal so `journalctl -u rcracer-server -f` is not stale.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rcracer-server
+
+[Install]
+WantedBy=multi-user.target

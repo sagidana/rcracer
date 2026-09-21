@@ -122,6 +122,50 @@ to the newest installed editor of the same major version (e.g. any `6000.x`) and
 the project to that version on first open and rewrites `ProjectVersion.txt`. Keep everyone on the same version, so
 either install the exact one from the Hub's **Archive** tab, or agree on the newer version and commit the upgrade once.
 
+## Multiplayer
+
+Every track is playable online: `RaceBootstrap` spawns your car locally as usual (so driving stays
+responsive) and best-effort connects a `NetClient` to the dedicated server hardcoded in
+`Assets/Scripts/Net/NetConfig.cs` (`142.132.187.130`, UDP port 7777). If the server never answers within
+a few seconds, the game just carries on offline - no menu toggle, no error dialog.
+
+The server is authoritative: it runs a real instance of each connected player's car (the same
+`CarController` physics as the client, fed by network input instead of a keyboard) and is the only place
+player-vs-player and player-vs-track collisions are actually resolved. Each client predicts its own car
+locally for immediate response, and snaps to the server's position if it ever drifts too far (see
+`NetClient.Reconcile` / `NetConfig.ReconcileDistance`) - normal driving does not trigger this, only a
+real disagreement (typically a collision the two sides resolved differently) does. Other players are
+purely visual on your screen (`RemoteCarView`): their car moves by interpolating the server's snapshots,
+with no local collider, since only the server's copy of them is real.
+
+### Running the server
+
+`Tools > Server > Build Server Scene` generates `Assets/Scenes/Server.unity` (just a `ServerBoot` object -
+nothing to render, the server always runs `-batchmode -nographics`). `Tools > Build > Linux Server` (or
+`deploy/deploy.sh`, see below) builds it: needs the **Linux Dedicated Server Build Support** module from
+Unity Hub, in addition to the editor itself.
+
+The built server takes which track to host from the command line, default `Street`:
+
+```
+RCRACE-server -batchmode -nographics -track=Street   # or Desert / Test
+```
+
+### Deploying
+
+```bash
+deploy/deploy.sh          # builds the Linux server, deploys to `ssh game`, installs it as systemd unit rcracer-server
+deploy/deploy.sh myhost   # deploy to a different preconfigured ssh host instead
+```
+
+Requires passwordless SSH to the target already working (`ssh <host>` with no prompt) and sudo there;
+`deploy/remote_install.sh` runs on the remote end to install/restart the systemd service.
+Logs: `ssh game 'journalctl -u rcracer-server -f'`.
+
+**Firewall:** the server needs inbound **UDP port 7777** open (see `NetConfig.cs`) - both on the host
+itself (`ufw allow 7777/udp`, `firewall-cmd --add-port=7777/udp`, or an `iptables` rule) and, if the
+machine sits behind a cloud provider's own firewall/security group, there too.
+
 ## Working with Claude Code from WSL (optional)
 
 `tools/mcp-firewall.sh open|close|status` opens or closes the Windows firewall for the MCP servers

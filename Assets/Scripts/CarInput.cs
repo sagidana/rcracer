@@ -17,10 +17,24 @@ public class CarInput : MonoBehaviour
     // true while Space is held
     public bool Handbrake { get; private set; }
 
+    // Set by NetServer for a car it owns: input then comes from the network instead of a local
+    // keyboard/gamepad, so a dedicated server (no display, no local player) can still drive the car.
+    [System.NonSerialized] public bool NetworkControlled;
+    float netThrottle, netSteer;
+    bool netHandbrake;
+
     bool resetPressed;
 
     void Update()
     {
+        if (NetworkControlled)
+        {
+            Throttle = netThrottle;
+            Steer = netSteer;
+            Handbrake = netHandbrake;
+            return;
+        }
+
         float t = 0f, s = 0f;
         bool handbrake = false;
 
@@ -56,7 +70,6 @@ public class CarInput : MonoBehaviour
         Handbrake = handbrake;
     }
 
-    // Physics calls this once per press of R (put the car back on its wheels).
     float Deadzone(float v)
     {
         float a = Mathf.Abs(v);
@@ -64,6 +77,20 @@ public class CarInput : MonoBehaviour
         return Mathf.Sign(v) * (a - stickDeadzone) / (1f - stickDeadzone);
     }
 
+    // NetServer calls this once per received Input packet for a network-controlled car.
+    public void SetNetworkInput(float throttle, float steer, bool handbrake, bool reset)
+    {
+        netThrottle = Mathf.Clamp(throttle, -1f, 1f);
+        netSteer = Mathf.Clamp(steer, -1f, 1f);
+        netHandbrake = handbrake;
+        if (reset) resetPressed = true;
+    }
+
+    // NetClient reads this to forward an R press to the server without stealing it from
+    // the local physics, which still consumes it itself via ConsumeReset().
+    public bool PeekReset() { return resetPressed; }
+
+    // Physics calls this once per press of R (put the car back on its wheels).
     public bool ConsumeReset()
     {
         bool r = resetPressed;
