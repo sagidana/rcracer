@@ -125,7 +125,7 @@ either install the exact one from the Hub's **Archive** tab, or agree on the new
 ## Working with Claude Code from WSL (optional)
 
 `tools/mcp-firewall.sh open|close|status` opens or closes the Windows firewall for the MCP servers
-(Unity MCP on 8080, Blender MCP on 9876, plus the localhost port forward the Blender addon needs).
+(Unity MCP on 8080, and 9877 forwarded to the Blender addon on localhost:9876).
 `open`/`close` show a UAC prompt on Windows.
 
 ## What is in git

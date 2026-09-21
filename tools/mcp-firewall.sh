@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Open / close the Windows firewall for the MCP servers this WSL setup talks to.
 #
-#   tools/mcp-firewall.sh open     allow inbound TCP 8080 (Unity MCP) and 9876 (Blender MCP),
-#                                  and forward 0.0.0.0:9876 -> 127.0.0.1:9876 for the Blender addon
+#   tools/mcp-firewall.sh open     allow inbound TCP 8080 (Unity MCP) and 9877 (Blender MCP),
+#                                  and forward 0.0.0.0:9877 -> 127.0.0.1:9876 (the Blender addon
+#                                  listens on localhost:9876 only; WSL connects to 9877)
 #   tools/mcp-firewall.sh close    remove those rules and the port forward
 #   tools/mcp-firewall.sh status   show what is currently there (no admin needed)
 #
@@ -12,7 +13,7 @@
 set -euo pipefail
 
 ACTION="${1:-status}"
-PORTS="${PORTS:-8080 9876}"
+PORTS="${PORTS:-8080 9877}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PS1_WIN="$(wslpath -w "$HERE/mcp-firewall.ps1")"
 PORTS_PS="$(echo "$PORTS" | tr ' ' ',')"
