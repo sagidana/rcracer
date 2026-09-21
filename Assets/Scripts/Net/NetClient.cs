@@ -64,6 +64,12 @@ public class NetClient : MonoBehaviour
     float lastServerSnapshotTime;
 
     readonly Dictionary<byte, RemoteCarView> remotes = new Dictionary<byte, RemoteCarView>();
+    readonly Dictionary<byte, float> remoteLastSeen = new Dictionary<byte, float>();
+    // Every snapshot lists every player currently on the server, 20 times a second, so a car missing
+    // from all of them for this long has genuinely gone. PlayerLeft is a single unacknowledged UDP
+    // packet: when it is the only thing that removes a car, losing it strands that car on screen
+    // forever, motionless, looking exactly like a player who joined and never moved.
+    const float RemoteTimeout = 2f;
 
     Vector3 pendingCorrection;   // position difference still being fed in (see ApplyPendingCorrection)
 
@@ -154,6 +160,9 @@ public class NetClient : MonoBehaviour
             Send(NetProtocol.WritePing(Time.time));
         }
 
+        // every frame, not only when a snapshot arrives: if the server goes away entirely, the cars it
+        // was driving must still leave rather than stand around being someone who is no longer here
+        PruneStale();
         ReconcileTick();
     }
 
@@ -254,9 +263,8 @@ public class NetClient : MonoBehaviour
                     ApplySnapshot(states);
                     break;
                 case NetProtocol.MsgPlayerLeft:
-                    byte left = r.ReadByte();
-                    RemoteCarView view;
-                    if (remotes.TryGetValue(left, out view)) { if (view != null) Destroy(view.gameObject); remotes.Remove(left); }
+                    // just the prompt version of what PruneStale would do a couple of seconds later
+                    RemoveRemote(r.ReadByte());
                     break;
                 case NetProtocol.MsgPong:
                     float sentAt = NetProtocol.ReadPingPong(r);
@@ -269,11 +277,17 @@ public class NetClient : MonoBehaviour
 
     void ApplySnapshot(NetProtocol.PlayerState[] players)
     {
-        HashSet<byte> seen = new HashSet<byte>();
+        // Until the Welcome names us, our own car is indistinguishable from everyone else's in here.
+        // The server starts including it in snapshots the moment it receives our Hello, so at any real
+        // latency a snapshot can and does overtake that Welcome - and treating our own car as another
+        // player spawns a RemoteCarView for ourselves that nothing ever updates again, leaving a
+        // motionless duplicate parked at the start line drifting off on its last known velocity.
+        // Nothing is lost by waiting: a snapshot we cannot attribute is not usable anyway.
+        if (!welcomed) return;
+
         foreach (NetProtocol.PlayerState p in players)
         {
-            seen.Add(p.playerId);
-            if (welcomed && p.playerId == playerId)
+            if (p.playerId == playerId)
             {
                 lastServerPos = p.pos;
                 lastServerRot = p.rot;
@@ -293,10 +307,8 @@ public class NetClient : MonoBehaviour
                 remotes[p.playerId] = view;
             }
             if (view != null) view.SetTarget(p.pos, p.rot, p.vel, p.angVel);
+            remoteLastSeen[p.playerId] = Time.time;
         }
-        // players in the snapshot but not the world (a slow PlayerLeft, or we joined mid-game after
-        // they were already gone) are pruned lazily here rather than needing a second message type
-        if (remotes.Count > players.Length + 4) PruneStale(seen);
     }
 
     // Everything the server has now stepped is settled history: its result is baked into the snapshot
@@ -311,11 +323,26 @@ public class NetClient : MonoBehaviour
         if (drop > 0) unconfirmed.RemoveRange(0, drop);
     }
 
-    void PruneStale(HashSet<byte> seen)
+    void PruneStale()
     {
-        List<byte> gone = new List<byte>();
-        foreach (KeyValuePair<byte, RemoteCarView> kv in remotes) if (!seen.Contains(kv.Key)) gone.Add(kv.Key);
-        foreach (byte id in gone) { if (remotes[id] != null) Destroy(remotes[id].gameObject); remotes.Remove(id); }
+        List<byte> gone = null;
+        foreach (KeyValuePair<byte, RemoteCarView> kv in remotes)
+        {
+            float seenAt;
+            if (remoteLastSeen.TryGetValue(kv.Key, out seenAt) && Time.time - seenAt <= RemoteTimeout) continue;
+            if (gone == null) gone = new List<byte>();
+            gone.Add(kv.Key);
+        }
+        if (gone == null) return;
+        foreach (byte id in gone) RemoveRemote(id);
+    }
+
+    void RemoveRemote(byte id)
+    {
+        RemoteCarView view;
+        if (remotes.TryGetValue(id, out view) && view != null) Destroy(view.gameObject);
+        remotes.Remove(id);
+        remoteLastSeen.Remove(id);
     }
 
     // Runs once per arriving snapshot rather than every frame. A snapshot says where the car was at a
@@ -413,7 +440,14 @@ public class NetClient : MonoBehaviour
         gaveUp = true;
     }
 
-    void OnDestroy() { Shutdown(); }
+    void OnDestroy()
+    {
+        Shutdown();
+        // the remote cars are separate objects in the scene, not children of this one
+        foreach (KeyValuePair<byte, RemoteCarView> kv in remotes) if (kv.Value != null) Destroy(kv.Value.gameObject);
+        remotes.Clear();
+        remoteLastSeen.Clear();
+    }
 
     void OnGUI()
     {

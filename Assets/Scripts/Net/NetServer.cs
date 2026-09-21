@@ -291,12 +291,13 @@ public class NetServer : MonoBehaviour
     void BroadcastSnapshot()
     {
         if (byEndpoint.Count == 0) return;
-        NetProtocol.PlayerState[] states = new NetProtocol.PlayerState[byEndpoint.Count];
-        int i = 0;
+        // built as a list, not a fixed-size array: a player skipped below would otherwise leave a
+        // zeroed entry behind, which every client reads as a real player 0 sitting at the world origin
+        List<NetProtocol.PlayerState> live = new List<NetProtocol.PlayerState>();
         foreach (Player p in byEndpoint.Values)
         {
             if (p.rb == null) continue;
-            states[i++] = new NetProtocol.PlayerState
+            live.Add(new NetProtocol.PlayerState
             {
                 playerId = p.id,
                 carIndex = p.carIndex,
@@ -305,9 +306,10 @@ public class NetServer : MonoBehaviour
                 vel = p.rb.linearVelocity,
                 angVel = p.rb.angularVelocity,
                 lastAppliedSeq = p.lastAppliedSeq,
-            };
+            });
         }
-        byte[] data = NetProtocol.WriteSnapshot(states, serverTick);
+        if (live.Count == 0) return;
+        byte[] data = NetProtocol.WriteSnapshot(live.ToArray(), serverTick);
         foreach (Player p in byEndpoint.Values) SendTo(p.endpoint, data);
     }
 

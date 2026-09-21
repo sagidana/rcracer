@@ -34,11 +34,17 @@ public class RemoteCarView : MonoBehaviour
         }
     }
 
+    // How far past the last snapshot this will dead-reckon. Between snapshots (~50ms) predicting ahead
+    // is what keeps the car moving smoothly; far past that it is inventing a journey nobody took, so a
+    // car whose snapshots stop coming coasts briefly and then waits where it is, rather than sailing
+    // off across the map - or down through the floor - on whatever velocity it happened to have last.
+    const float MaxExtrapolation = 0.25f;   // seconds
+
     void Update()
     {
         if (!ready) return;
         float dt = Time.deltaTime;
-        float age = Time.time - lastSnapshotTime;
+        float age = Mathf.Min(Time.time - lastSnapshotTime, MaxExtrapolation);
 
         Quaternion turn = Quaternion.Euler(targetAngVel * Mathf.Rad2Deg * age);
         Quaternion predictedRot = turn * targetRot;
