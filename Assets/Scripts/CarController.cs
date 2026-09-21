@@ -45,6 +45,8 @@ public class CarController : MonoBehaviour
 
     // unstick + impact
     float stuckTimer;
+    bool wallTouch;                       // the body is pressed against a wall this step (not the ground, not a light prop)
+    Vector3 wallNormalSum;
     bool touching;
     Vector3 touchNormalSum;
     float lastImpactTime = -10f;
@@ -99,10 +101,13 @@ public class CarController : MonoBehaviour
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
         rb.solverIterations = body.solverIterations;
         rb.solverVelocityIterations = 4;
+        rb.maxDepenetrationVelocity = collision.maxPushOut;   // never "pop" out of a wall
         rb.sleepThreshold = 0f;                     // never fall asleep: the wheels push all the time
         rb.centerOfMass = body.centerOfMass;
         rb.ResetInertiaTensor();
         rb.inertiaTensor = rb.inertiaTensor * body.inertiaMultiplier;
+        Vector3 it = rb.inertiaTensor;   // harder to flip (x, z) than to spin (y)
+        rb.inertiaTensor = new Vector3(it.x * body.pitchRollInertia, it.y, it.z * body.pitchRollInertia);
     }
 
     // The suspension top is above the wheel's resting position by (travel - sag).
@@ -120,19 +125,25 @@ public class CarController : MonoBehaviour
 
     void ApplyCollisionMaterial()
     {
+        // a slippery body: the wall's normal push turns the car (natural yaw) instead of wall friction
+        // grabbing the nose and stopping it. Minimum = the car's values win against any wall or prop.
         bodyMaterial = new PhysicsMaterial("CarBody");
-        bodyMaterial.dynamicFriction = 0f;
-        bodyMaterial.staticFriction = 0f;
+        bodyMaterial.dynamicFriction = collision.bodyFriction;
+        bodyMaterial.staticFriction = collision.bodyFriction;
         bodyMaterial.bounciness = collision.bounciness;
         bodyMaterial.frictionCombine = PhysicsMaterialCombine.Minimum;
-        bodyMaterial.bounceCombine = PhysicsMaterialCombine.Maximum;
+        bodyMaterial.bounceCombine = PhysicsMaterialCombine.Minimum;
         foreach (Collider c in GetComponentsInChildren<Collider>())
             if (!c.isTrigger) c.sharedMaterial = bodyMaterial;
     }
 
     void OnValidate()
     {
-        if (Application.isPlaying && bodyMaterial != null) bodyMaterial.bounciness = collision.bounciness;
+        if (!Application.isPlaying || bodyMaterial == null) return;
+        bodyMaterial.bounciness = collision.bounciness;
+        bodyMaterial.dynamicFriction = collision.bodyFriction;
+        bodyMaterial.staticFriction = collision.bodyFriction;
+        if (rb != null) rb.maxDepenetrationVelocity = collision.maxPushOut;
     }
 
     // ------------------------------------------------------------------
@@ -180,6 +191,14 @@ public class CarController : MonoBehaviour
         foreach (CarWheel w in Wheels)
             ApplyTire(w, t, up, fwd, throttle, handbrake, mass, mPer, driven, staticLoad, dt);
 
+        // pressed against a wall: keep the car on its wheels (the wall pushes high, the tires hold low = a rollover couple)
+        if (wallTouch && grip.wallUprightAssist > 0f)
+        {
+            Vector3 lean = Vector3.Cross(up, Vector3.up);                        // axis to rotate around to stand upright
+            Vector3 spin = Vector3.ProjectOnPlane(rb.angularVelocity, Vector3.up); // roll/pitch rate only, never yaw
+            rb.AddTorque((lean * grip.wallUprightAssist - spin * (grip.wallUprightAssist / 15f)) * mass);
+        }
+
         // 4) extra arcade forces
         if (body.gravityScale > 1f)
             rb.AddForce(Physics.gravity * (body.gravityScale - 1f) * mass);
@@ -191,6 +210,8 @@ public class CarController : MonoBehaviour
         UpdateUnstick(throttle, speed, dt);
         touching = false;
         touchNormalSum = Vector3.zero;
+        wallTouch = false;
+        wallNormalSum = Vector3.zero;
     }
 
     void UpdateSteering(float steerInput, bool handbrake, float speed, float dt)
@@ -285,6 +306,9 @@ public class CarController : MonoBehaviour
         float slipAngle = Mathf.Atan2(Mathf.Abs(vL), Mathf.Abs(vF) + 0.5f) * Mathf.Rad2Deg;
         axleGrip = Mathf.Lerp(axleGrip, 1f, Mathf.InverseLerp(grip.catchAngleStart, grip.catchAngleEnd, slipAngle));
         float budget = grip.friction * load * axleGrip;
+        // pressed against a wall: the tires give way sideways, so the wall can shove and turn the car
+        // instead of the car freezing with its nose in the wall
+        if (wallTouch) budget *= grip.wallGripScale;
 
         // side grip: cancel sideways sliding, up to the friction limit
         float fyWanted = -vL * mPer / dt * grip.lateralStiffness;
@@ -365,12 +389,27 @@ public class CarController : MonoBehaviour
     void OnCollisionStay(Collision c)
     {
         touching = true;
-        for (int i = 0; i < c.contactCount; i++) touchNormalSum += c.GetContact(i).normal;
+        NoteContacts(c);
+    }
+
+    void NoteContacts(Collision c)
+    {
+        Rigidbody other = c.rigidbody;
+        bool lightProp = other != null && other.mass <= props.lightPropMass;
+        for (int i = 0; i < c.contactCount; i++)
+        {
+            Vector3 n = c.GetContact(i).normal;
+            touchNormalSum += n;
+            if (lightProp || Mathf.Abs(n.y) > 0.5f) continue;   // ground / roof / cone: not a wall
+            wallTouch = true;
+            wallNormalSum += n;
+        }
     }
 
     void OnCollisionEnter(Collision c)
     {
         if (c.contactCount == 0) return;
+        NoteContacts(c);
 
         // a light object (cone, trash can): keep most of our speed, the object flies away
         Rigidbody other = c.rigidbody;
@@ -397,17 +436,22 @@ public class CarController : MonoBehaviour
         if (hitSpeed < collision.hardHitSpeed || normal.y > 0.7f) return; // soft touch, or just landing on the ground
         lastImpactTime = Time.time;
 
-        float preSpeed = Mathf.Max(lastVelocity.magnitude, 0.1f);
-        float headOn = Mathf.Clamp01(hitSpeed / preSpeed);             // 1 = straight into the wall, 0 = scraping along it
+        // by default the physics engine alone decides the reaction (contact point, friction, inertia);
+        // the scripted extras below are an arcade option
+        if (collision.scriptedImpact)
+        {
+            float preSpeed = Mathf.Max(lastVelocity.magnitude, 0.1f);
+            float headOn = Mathf.Clamp01(hitSpeed / preSpeed);             // 1 = straight into the wall, 0 = scraping along it
 
-        // a bit more speed loss on head-on hits (glancing hits keep their speed)
-        rb.linearVelocity *= 1f - collision.speedLossOnImpact * headOn;
+            // a bit more speed loss on head-on hits (glancing hits keep their speed)
+            rb.linearVelocity *= 1f - collision.speedLossOnImpact * headOn;
 
-        // a twist that depends on where the wall touched the car
-        Vector3 arm = point - rb.worldCenterOfMass;
-        float side = Vector3.Dot(Vector3.Cross(arm, normal), Vector3.up);
-        float spin = Mathf.Clamp(side * hitSpeed * collision.spinOnImpact, -collision.maxImpactSpin, collision.maxImpactSpin);
-        rb.angularVelocity += Vector3.up * spin;
+            // a twist that depends on where the wall touched the car
+            Vector3 arm = point - rb.worldCenterOfMass;
+            float side = Vector3.Dot(Vector3.Cross(arm, normal), Vector3.up);
+            float spin = Mathf.Clamp(side * hitSpeed * collision.spinOnImpact, -collision.maxImpactSpin, collision.maxImpactSpin);
+            rb.angularVelocity += Vector3.up * spin;
+        }
 
         if (follow != null && collision.cameraShake > 0f)
             follow.Shake(collision.cameraShake * Mathf.Clamp01(hitSpeed / 15f));

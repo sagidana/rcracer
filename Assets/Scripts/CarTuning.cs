@@ -18,6 +18,9 @@ public class BodySettings
     [Tooltip("כמה קשה לסובב את הרכב. גבוה = יציב ועצל יותר, נמוך = מסתובב ומתהפך מהר.")]
     public float inertiaMultiplier = 1.5f;
 
+    [Tooltip("כמה קשה להטות ולהפוך את הרכב (קדימה/אחורה והצידה) ביחס לסיבוב שלו סביב עצמו. גבוה = פגיעה חזיתית מנענעת את הרכב במקום להעמיד אותו על האף.")]
+    public float pitchRollInertia = 3f;
+
     [Tooltip("התנגדות אוויר כללית. 0 = אין.")]
     public float linearDrag = 0.02f;
 
@@ -147,16 +150,35 @@ public class GripSettings
 
     [Tooltip("בלימת סיבוב בזמן שהרכב באוויר, כדי שלא יסתובב בלי שליטה אחרי קפיצה.")]
     public float airStability = 0.6f;
+
+    [Tooltip("כמה מהאחיזה הצידית נשארת בזמן שהגוף לחוץ על קיר (0 עד 1). נמוך = הקיר יכול לדחוף ולסובב את הרכב והוא מחליק לאורכו במקום להיתקע עם האף בקיר.")]
+    [Range(0f, 1f)] public float wallGripScale = 0.15f;
+
+    [Tooltip("כמה חזק הרכב נשאר זקוף בזמן שהוא לחוץ על קיר (0 = בלי עזרה). בלי זה, קיר שדוחף את הגוף למעלה בזמן שהגלגלים נתפסים למטה מגלגל את הרכב על הצד.")]
+    public float wallUprightAssist = 60f;
 }
 
 [Serializable]
 public class CollisionSettings
 {
-    [Tooltip("כמה הרכב קופץ אחורה כשהוא פוגע בקיר (0 = נדבק, 1 = קופץ חזרה באותו כוח).")]
-    [Range(0f, 1f)] public float bounciness = 0.35f;
+    [Tooltip("חיכוך גוף הרכב עם קירות (0 = מחליק, 1 = נתפס). נמוך = הקיר לא \"תופס\" את האף והרכב מסתובב ומחליק לאורכו במקום להיתקע. הערך של הרכב תמיד גובר על זה של הקיר.")]
+    [Range(0f, 1f)] public float bodyFriction = 0.15f;
+
+    [Tooltip("כמה הרכב קופץ אחורה כשהוא פוגע בקיר (0 = נדבק, 1 = קופץ חזרה באותו כוח). קצת קפיצה מרגישה טבעי ומפרידה את הרכב מהקיר.")]
+    [Range(0f, 1f)] public float bounciness = 0.15f;
+
+    [Tooltip("המהירות המקסימלית (מטר בשנייה) שבה הפיזיקה דוחפת את הרכב החוצה מקיר שהוא נכנס לתוכו. נמוך = בלי קפיצות פתאומיות.")]
+    public float maxPushOut = 4f;
 
     [Tooltip("מהירות פגיעה (מטר בשנייה) שמתחתיה זו נגיעה קלה בלי אפקטים מיוחדים.")]
     public float hardHitSpeed = 3.5f;
+
+    [Tooltip("עוצמת רעידת המצלמה בפגיעה חזקה. 0 = בלי רעידה.")]
+    public float cameraShake = 0.25f;
+
+    [Header("Scripted impact (off = pure physics)")]
+    [Tooltip("אם מסומן, הסקריפט מוסיף אפקטים משלו לפגיעה (איבוד מהירות וסיבוב) מעבר לפיזיקה. כבוי = הפיזיקה לבד, טבעי יותר.")]
+    public bool scriptedImpact = false;
 
     [Tooltip("כמה מהירות הרכב מאבד בפגיעה חזיתית חזקה, בנוסף לקפיצה (0 עד 1). פגיעה צדדית מאבדת פחות.")]
     [Range(0f, 1f)] public float speedLossOnImpact = 0.25f;
@@ -167,9 +189,7 @@ public class CollisionSettings
     [Tooltip("הסיבוב הכי גדול שפגיעה יכולה לתת (רדיאנים בשנייה).")]
     public float maxImpactSpin = 5f;
 
-    [Tooltip("עוצמת רעידת המצלמה בפגיעה חזקה. 0 = בלי רעידה.")]
-    public float cameraShake = 0.25f;
-
+    [Header("Unstick")]
     [Tooltip("אם מסומן, רכב שתקוע בקיר מקבל דחיפה קטנה החוצה.")]
     public bool unstick = true;
 

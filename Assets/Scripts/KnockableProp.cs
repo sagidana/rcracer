@@ -9,7 +9,7 @@ public class KnockableProp : MonoBehaviour
     public float mass = 1f;
 
     [Tooltip("כמה החפץ קופץ (0 עד 1).")]
-    [Range(0f, 1f)] public float bounciness = 0.4f;
+    [Range(0f, 1f)] public float bounciness = 0.3f;
 
     [Tooltip("חיכוך של החפץ עם הקרקע. נמוך = מחליק רחוק.")]
     public float friction = 0.25f;
@@ -48,14 +48,14 @@ public class KnockableProp : MonoBehaviour
         rb.sleepThreshold = 0.05f;
         rb.maxDepenetrationVelocity = 3f;
         rb.interpolation = RigidbodyInterpolation.None;
-        rb.collisionDetectionMode = CollisionDetectionMode.Discrete;
+        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;   // a fast car never passes through a cone
 
         PhysicsMaterial mat = new PhysicsMaterial("Prop");
         mat.dynamicFriction = friction;
         mat.staticFriction = friction;
         mat.bounciness = bounciness;
-        mat.frictionCombine = PhysicsMaterialCombine.Minimum;
-        mat.bounceCombine = PhysicsMaterialCombine.Maximum;
+        mat.frictionCombine = PhysicsMaterialCombine.Average;
+        mat.bounceCombine = PhysicsMaterialCombine.Average;
         foreach (Collider c in GetComponentsInChildren<Collider>())
             if (!c.isTrigger) c.sharedMaterial = mat;
     }

@@ -140,14 +140,17 @@ public static class CarPhysicsSetup
         AddBox(root.transform, "Col_Chassis", new Vector3(0f, (bottom + chassisTop) * 0.5f, cz), new Vector3(width, chassisTop - bottom, length));
         AddBox(root.transform, "Col_Cabin", new Vector3(0f, (chassisTop + top) * 0.5f, cz - length * 0.05f), new Vector3(width * 0.75f, top - chassisTop, length * 0.55f));
 
-        // wheel guards: they stop the car against high walls, but sit above the height a wheel can climb
+        // skirt: one low box around all four wheels (bumper height). It stops the car against walls with one flat
+        // face per side, so nothing catches on a corner, and the contact stays low so wall hits do not roll the car.
+        // It sits above the height a wheel can climb, so curbs still work.
         float r0 = diameter * 0.5f;
         float thick = Mathf.Max(0.15f, diameter * 0.3f);
-        for (int i = 0; i < 4; i++)
-        {
-            Vector3 p = m[i].localPosition;
-            AddBox(root.transform, "Col_WheelGuard_" + WheelNames[i].Substring(6), new Vector3(p.x, p.y + r0 * 0.55f, p.z), new Vector3(thick, r0 * 0.8f, r0 * 1.6f));
-        }
+        float frontZ = (m[0].localPosition.z + m[1].localPosition.z) * 0.5f;
+        float rearZ = (m[2].localPosition.z + m[3].localPosition.z) * 0.5f;
+        float wheelY = (m[0].localPosition.y + m[1].localPosition.y + m[2].localPosition.y + m[3].localPosition.y) * 0.25f;
+        AddBox(root.transform, "Col_Skirt",
+            new Vector3(0f, wheelY + r0 * 0.55f, (frontZ + rearZ) * 0.5f),
+            new Vector3(2f * half + thick, r0 * 0.8f, Mathf.Abs(frontZ - rearZ) + r0 * 1.6f));
     }
 
     static void AddBox(Transform parent, string name, Vector3 center, Vector3 size)
