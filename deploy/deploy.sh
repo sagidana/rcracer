@@ -50,6 +50,14 @@ if [ -z "$UNITY_BIN" ]; then
     exit 1
 fi
 
+# a batch build cannot open a project the editor (or an MCP-bridge-controlled instance) already has open;
+# it fails almost instantly with a near-empty log, which is confusing without this check
+if [ -e "$ROOT/Temp/UnityLockfile" ]; then
+    echo "The project looks open in the Unity editor ($ROOT/Temp/UnityLockfile exists)." >&2
+    echo "Close the editor and run again. If Unity is not running, delete that file and retry." >&2
+    exit 1
+fi
+
 PROJECT_ARG="$ROOT"; OUT_ARG="$OUT"; LOG_ARG="$LOG"
 case "$UNITY_BIN" in
     *.exe) PROJECT_ARG="$(wslpath -w "$ROOT")"; OUT_ARG="$(wslpath -w "$OUT")"; LOG_ARG="$(wslpath -w "$LOG")" ;;
