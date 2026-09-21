@@ -24,6 +24,7 @@ public class NetClient : MonoBehaviour
     readonly object inboxLock = new object();
 
     bool welcomed;
+    bool gaveUp;   // tried and failed to reach the server; OnGUI shows this so "offline" is never just a guess
     byte playerId;
     float connectStart;
     float lastHelloSent = -99f;
@@ -57,7 +58,8 @@ public class NetClient : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogWarning("NetClient: could not start (playing offline): " + e.Message);
-            enabled = false;
+            if (socket != null) { socket.Close(); socket = null; }
+            gaveUp = true;
         }
     }
 
@@ -210,17 +212,23 @@ public class NetClient : MonoBehaviour
         catch (Exception) { /* a dropped send: the next periodic send will retry with fresh state */ }
     }
 
+    // Closes the socket and stops trying. Does NOT disable this component: OnGUI must keep running so
+    // "gave up, playing offline" is an actual message on screen rather than the status line just
+    // vanishing (which used to happen here, indistinguishable from a UI bug).
     void Shutdown()
     {
         if (socket != null) { socket.Close(); socket = null; }
-        enabled = false;
+        gaveUp = true;
     }
 
     void OnDestroy() { Shutdown(); }
 
     void OnGUI()
     {
-        string status = welcomed ? ("Online - " + (remotes.Count + 1) + " car(s)") : "Connecting...";
+        string status;
+        if (gaveUp) status = "Offline (solo) - could not reach the server";
+        else if (welcomed) status = "Online - " + (remotes.Count + 1) + " car(s)";
+        else status = "Connecting...";
         GUI.Label(new Rect(10, 10, 400, 24), status);
     }
 }
