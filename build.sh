@@ -13,9 +13,12 @@
 #   3. Windows editor through WSL interop: /mnt/c/Program Files/Unity/Hub/Editor/<version>/Editor/Unity.exe
 # The editor needs the "Windows Build Support (Mono)" module installed from Unity Hub.
 #
-# Windows editor + repo inside the WSL filesystem: Unity.exe refuses case-sensitive filesystems
-# (and \\wsl.localhost is slow), so the project is first synced to a folder on the Windows drive
-# (default %LOCALAPPDATA%\RCRACE-build), built there with a cached Library/, and the result copied back.
+# The repo is expected on a Windows drive (/mnt/c/...): Unity.exe builds it in place and Library/ is
+# cached next to it. If the repo lives inside the WSL filesystem instead, Unity.exe refuses it
+# (case-sensitive filesystem), so the project is first synced to %LOCALAPPDATA%\RCRACE-build,
+# built there, and the result copied back.
+#
+# Close the Unity editor first: a batch build cannot open a project that the editor has open.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -85,6 +88,13 @@ esac
 UNITY_LOG="$LOG"                                   # where Unity writes its log (Linux path)
 [ "$STAGED" = 1 ] && UNITY_LOG="$STAGE/build.log"
 : > "$UNITY_LOG"
+# the editor keeps Temp/UnityLockfile while it has the project open; a batch build then fails
+if [ -e "$PROJECT/Temp/UnityLockfile" ]; then
+    echo "The project looks open in the Unity editor ($PROJECT/Temp/UnityLockfile exists)." >&2
+    echo "Close the editor and run again. If Unity is not running, delete that file and retry." >&2
+    exit 1
+fi
+
 PROJECT_ARG="$PROJECT"
 OUT_ARG="$BUILD_DIR"
 LOG_ARG="$UNITY_LOG"
@@ -124,7 +134,10 @@ if [ "$STATUS" -ne 0 ]; then
     exit "$STATUS"
 fi
 echo "Done: $OUT/RCRACE.exe  (zip the whole $OUT folder to share it)"
-if [ "$STAGED" = 1 ]; then
-    echo "Run it from the Windows drive, not through \\\\wsl.localhost (DLLs next to the exe do not load from there):"
-    echo "  \"$BUILD_DIR/RCRACE.exe\""
-fi
+case "$UNITY_BIN" in
+    *.exe)
+        RUN_DIR="$OUT"
+        [ "$STAGED" = 1 ] && RUN_DIR="$BUILD_DIR"   # the repo copy is on the WSL disk: DLLs do not load through \\wsl.localhost
+        echo "Run:  $(wslpath -w "$RUN_DIR")\\RCRACE.exe"
+        ;;
+esac

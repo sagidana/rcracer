@@ -102,19 +102,18 @@ The script looks for the matching editor in this order:
 2. Linux editor from Unity Hub: `~/Unity/Hub/Editor/6000.3.24f1/Editor/Unity`
 3. Windows editor through WSL interop: `/mnt/c/Program Files/Unity/Hub/Editor/6000.3.24f1/Editor/Unity.exe`
 
-With the Windows editor and a repo inside the WSL filesystem (`/home/...`), Unity.exe cannot open the project
-directly: it refuses case-sensitive filesystems, and `\\wsl.localhost` is slow anyway. The script handles this by
-syncing `Assets/`, `Packages/` and `ProjectSettings/` to a staging folder on the Windows drive
-(`%LOCALAPPDATA%\RCRACE-build`, override with `STAGE=/mnt/c/...`), building there with a cached `Library/`
-(so later builds are much faster), and copying the result back to `Build/Windows/`. Needs `rsync`
-(`sudo apt install rsync`). A repo checked out under `/mnt/c/...`, or the Linux editor, builds in place.
+Keep the repo on a Windows drive (e.g. `C:\dev\rcracer`, which is `/mnt/c/dev/rcracer` in WSL): the Windows
+editor opens it directly and `./build.sh` builds it in place. Close the Unity editor before building; a batch
+build cannot open a project the editor already has open (the script checks `Temp/UnityLockfile` and stops).
+
+If the repo lives inside the WSL filesystem (`/home/...`) instead, Unity.exe cannot open it: it refuses
+case-sensitive filesystems, and `\\wsl.localhost` is slow anyway. The script then syncs `Assets/`, `Packages/`
+and `ProjectSettings/` to `%LOCALAPPDATA%\RCRACE-build` (override with `STAGE=/mnt/c/...`), builds there with a
+cached `Library/`, and copies the result back to `Build/Windows/`. Needs `rsync` (`sudo apt install rsync`).
+Run that build from the Windows-drive copy the script prints: launching an exe through `\\wsl.localhost\...`
+fails with "dstorage.dll was not found" because Windows does not load the DLLs next to it from a network path.
 
 The full editor log is written to `Build/build.log`.
-
-To play a build that lives inside the WSL filesystem, run the copy the script leaves on the Windows drive
-(it prints the path, e.g. `/mnt/c/Users/<you>/AppData/Local/RCRACE-build/Build/Windows/RCRACE.exe`), or zip
-`Build/Windows` and unpack it on a Windows drive. Launching the exe through `\\wsl.localhost\...` fails with
-"dstorage.dll was not found" because Windows does not load the DLLs next to the exe from that network path.
 
 ### Editor version
 
