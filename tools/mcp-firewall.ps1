@@ -6,9 +6,10 @@
 #   status : show what is currently there
 param(
     [string]$Action = "status",
-    [int[]]$Ports = @(8080, 9876)
+    [string]$Ports = "8080,9876"     # comma separated; a plain string because -File passes strings
 )
 $ErrorActionPreference = "Stop"
+$Ports = @($Ports -split "[, ]+" | Where-Object { $_ -ne "" } | ForEach-Object { [int]$_ })
 $log = Join-Path $env:TEMP "wsl-mcp-firewall.log"
 $lines = @()
 $BlenderPort = 9876
