@@ -22,6 +22,14 @@ public static class NetConfig
     //                                               a fresh join, a long dropout)
     public const float ReconcileDistance = 0.6f;   // meters
     public const float ReconcileAngle = 6f;        // degrees
+
+    // Replay reconciliation (NetPredictor): the client re-simulates its unconfirmed input ticks on top
+    // of the server's last verified state, which yields where the car genuinely should be rather than a
+    // guess, so there is nothing to ease toward - the answer is simply applied. These are only a dead
+    // zone for noise (a prop the server does not simulate, float drift), below which the local
+    // simulation is left alone rather than being nudged every single snapshot.
+    public const float ReplayDeadZone = 0.05f;     // meters
+    public const float ReplayDeadZoneAngle = 1f;   // degrees
     public const float ReconcileEase = 0.15f;      // seconds to close a moderate gap
     public const float HardSnapDistance = 6f;      // meters
     public const float HardSnapAngle = 45f;        // degrees

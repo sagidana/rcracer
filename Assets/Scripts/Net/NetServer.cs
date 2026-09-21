@@ -240,7 +240,15 @@ public class NetServer : MonoBehaviour
         if (input == null) input = car.AddComponent<CarInput>();
         input.NetworkControlled = true;
         CarController controller = car.GetComponent<CarController>();
-        if (controller != null) controller.enabled = false;   // stepped by FixedUpdate above, one input tick at a time
+        if (controller != null)
+        {
+            // Unity never calls Start on a disabled component, so the setup it does (wheel mount
+            // positions, mass, the collision material) has to be requested before switching it off -
+            // without it the car sits at its spawn height on an uninitialised suspension and never
+            // simulates at all, while still faithfully reporting that frozen pose to every client.
+            controller.InitializePhysics();
+            controller.enabled = false;   // stepped by FixedUpdate above, one input tick at a time
+        }
 
         Player p = new Player
         {

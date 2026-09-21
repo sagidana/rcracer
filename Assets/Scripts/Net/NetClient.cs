@@ -63,6 +63,10 @@ public class NetClient : MonoBehaviour
 
     readonly Dictionary<byte, RemoteCarView> remotes = new Dictionary<byte, RemoteCarView>();
 
+    // the isolated physics world the unconfirmed ticks are re-simulated in (see NetPredictor)
+    NetPredictor predictor;
+    bool snapshotPending;   // a new server state arrived this frame and has not been reconciled against yet
+
     public bool Connected { get { return welcomed; } }
     public int RemoteCount { get { return remotes.Count; } }
 
@@ -76,6 +80,14 @@ public class NetClient : MonoBehaviour
         localInput = car.GetComponent<CarInput>();
         localRb = car.GetComponent<Rigidbody>();
         localCarIndex = (byte)carIndex;
+
+        int ci = Mathf.Clamp(carIndex, 0, GameSelection.Cars.Length - 1);
+        GameObject carPrefab = Resources.Load<GameObject>(GameSelection.CarResourceFolder + "/" + GameSelection.Cars[ci]);
+        if (carPrefab != null)
+        {
+            predictor = gameObject.AddComponent<NetPredictor>();
+            predictor.Setup(carPrefab);
+        }
 
         try
         {
@@ -252,6 +264,7 @@ public class NetClient : MonoBehaviour
                 lastServerAngVel = p.angVel;
                 lastServerSnapshotTime = Time.time;
                 haveServerState = true;
+                snapshotPending = true;
                 AckInputs(p.lastAppliedSeq);
                 continue;
             }
@@ -288,47 +301,39 @@ public class NetClient : MonoBehaviour
         foreach (byte id in gone) { if (remotes[id] != null) Destroy(remotes[id].gameObject); remotes.Remove(id); }
     }
 
-    // Runs every frame rather than once per snapshot: a snapshot is a sample of where the car WAS at
-    // the moment the server sent it, already up to one round trip stale by the time it gets here. At
-    // speed that alone looks like meters of "disagreement" that is not a real divergence at all, so
-    // this extrapolates the snapshot forward (using its own reported velocity and angular velocity,
-    // how long ago it arrived, plus half the measured ping) before comparing. Position is extrapolated
-    // ALONG THE CURVE the car is turning through (rotate the velocity by half the predicted turn, then
-    // step forward), not a straight line - a car mid-corner does not travel straight, so straight-line
-    // prediction is systematically wrong exactly while cornering at speed, which is when a jump was
-    // most visible. What is left after that is a genuine gap, eased in smoothly; a hard snap is
-    // reserved for something clearly wrong (a missed collision, a fresh join, a long dropout).
+    // Runs once per arriving snapshot rather than every frame. A snapshot says where the car was at a
+    // tick the server had already finished, which is always in the past by about half a round trip -
+    // but it also says which of this client's input ticks it had applied by then, and every tick after
+    // that is still held here. So instead of guessing where that state has drifted to since (the old
+    // approach: extrapolate along velocity, ease toward it, and hope), the unconfirmed ticks are simply
+    // re-simulated on top of it in an identical physics world. The result is not an estimate of where
+    // the car should be - it is where the car would be, computed the same way the server computed its
+    // half. Applying it therefore needs no easing and leaves nothing to converge.
+    //
+    // When the local prediction was already right, the replay lands on what the car already has and
+    // nothing moves at all. The dead zone below only stops a permanent tug-of-war over differences the
+    // server never simulates in the first place (props, float drift).
     void ReconcileTick()
     {
+        if (!snapshotPending) return;
+        snapshotPending = false;
         if (!haveServerState || localRb == null) return;
+        if (predictor == null || !predictor.Ready) return;
 
-        float oneWayLatency = smoothedRttMs > 0f ? smoothedRttMs * 0.0005f : 0f;   // ms -> s, /2 for one-way
-        float age = (Time.time - lastServerSnapshotTime) + oneWayLatency;
+        Vector3 pos, vel, angVel;
+        Quaternion rot;
+        predictor.Replay(lastServerPos, lastServerRot, lastServerVel, lastServerAngVel,
+            unconfirmed, Time.fixedDeltaTime, out pos, out rot, out vel, out angVel);
 
-        Quaternion turn = Quaternion.Euler(lastServerAngVel * Mathf.Rad2Deg * age);
-        Quaternion targetRot = turn * lastServerRot;
-        Vector3 midVel = Quaternion.Euler(lastServerAngVel * Mathf.Rad2Deg * age * 0.5f) * lastServerVel;
-        Vector3 target = lastServerPos + midVel * age;
+        float dist = Vector3.Distance(localRb.position, pos);
+        float angle = Quaternion.Angle(localRb.rotation, rot);
+        if (dist <= NetConfig.ReplayDeadZone && angle <= NetConfig.ReplayDeadZoneAngle) return;
 
-        float dist = Vector3.Distance(localRb.position, target);
-        float angle = Quaternion.Angle(localRb.rotation, targetRot);
-        if (dist <= NetConfig.ReconcileDistance && angle <= NetConfig.ReconcileAngle) return;
-
-        if (dist > NetConfig.HardSnapDistance || angle > NetConfig.HardSnapAngle)
-        {
-            Debug.Log("NetClient: hard-correcting (dist=" + dist.ToString("0.0") + "m, angle=" + angle.ToString("0") + " deg)");
-            localRb.position = target;
-            localRb.rotation = targetRot;
-            localRb.linearVelocity = midVel;
-            localRb.angularVelocity = lastServerAngVel;
-            return;
-        }
-
-        // a moderate, genuine gap: ease toward the server's (extrapolated) state instead of teleporting
-        float k = 1f - Mathf.Exp(-Time.deltaTime / NetConfig.ReconcileEase);
-        localRb.position = Vector3.Lerp(localRb.position, target, k);
-        localRb.rotation = Quaternion.Slerp(localRb.rotation, targetRot, k);
-        localRb.linearVelocity = Vector3.Lerp(localRb.linearVelocity, midVel, k);
+        localRb.position = pos;
+        localRb.rotation = rot;
+        localRb.linearVelocity = vel;
+        localRb.angularVelocity = angVel;
+        localCar.transform.SetPositionAndRotation(pos, rot);   // AutoSyncTransforms is off in this project
     }
 
     RemoteCarView SpawnRemote(byte carIndex)
