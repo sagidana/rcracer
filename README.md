@@ -107,6 +107,13 @@ when the repo lives on a Windows drive (e.g. `/mnt/c/...`) rather than inside th
 
 The full editor log is written to `Build/build.log`.
 
+### Editor version
+
+Both scripts look for the exact version in `ProjectSettings/ProjectVersion.txt` first. If it is missing they fall back
+to the newest installed editor of the same major version (e.g. any `6000.x`) and print a warning: Unity then upgrades
+the project to that version on first open and rewrites `ProjectVersion.txt`. Keep everyone on the same version, so
+either install the exact one from the Hub's **Archive** tab, or agree on the newer version and commit the upgrade once.
+
 ## What is in git
 
 Only source and project settings: `Assets/`, `Packages/`, `ProjectSettings/`, the build scripts and this file.

@@ -18,12 +18,20 @@ VERSION="$(sed -n 's/^m_EditorVersion: //p' "$ROOT/ProjectSettings/ProjectVersio
 LOG="$ROOT/Build/build.log"
 mkdir -p "$ROOT/Build"
 
+LINUX_HUB="$HOME/Unity/Hub/Editor"
+WIN_HUB="/mnt/c/Program Files/Unity/Hub/Editor"
+
+# exact version first, then any editor of the same major version (newest first)
 find_unity() {
     if [ -n "${UNITY:-}" ]; then echo "$UNITY"; return; fi
-    local linux="$HOME/Unity/Hub/Editor/$VERSION/Editor/Unity"
-    if [ -x "$linux" ]; then echo "$linux"; return; fi
-    local win="/mnt/c/Program Files/Unity/Hub/Editor/$VERSION/Editor/Unity.exe"
-    if [ -x "$win" ]; then echo "$win"; return; fi
+    if [ -x "$LINUX_HUB/$VERSION/Editor/Unity" ]; then echo "$LINUX_HUB/$VERSION/Editor/Unity"; return; fi
+    if [ -x "$WIN_HUB/$VERSION/Editor/Unity.exe" ]; then echo "$WIN_HUB/$VERSION/Editor/Unity.exe"; return; fi
+    local major="${VERSION%%.*}"
+    local dir
+    for dir in $(ls -d "$LINUX_HUB"/"$major".* "$WIN_HUB"/"$major".* 2>/dev/null | sort -rV); do
+        if [ -x "$dir/Editor/Unity" ]; then echo "$dir/Editor/Unity"; return; fi
+        if [ -x "$dir/Editor/Unity.exe" ]; then echo "$dir/Editor/Unity.exe"; return; fi
+    done
     echo ""
 }
 
@@ -31,9 +39,14 @@ UNITY_BIN="$(find_unity)"
 if [ -z "$UNITY_BIN" ]; then
     echo "Unity $VERSION not found." >&2
     echo "Install it with Unity Hub (plus 'Windows Build Support (Mono)'), or run: UNITY=/path/to/Unity ./build.sh" >&2
-    echo "Looked in: ~/Unity/Hub/Editor/$VERSION/Editor/Unity and /mnt/c/Program Files/Unity/Hub/Editor/$VERSION/Editor/Unity.exe" >&2
+    echo "Looked in: $LINUX_HUB/ and $WIN_HUB/" >&2
     exit 1
 fi
+case "$UNITY_BIN" in
+    *"/$VERSION/"*) ;;
+    *) echo "WARNING: project was made with Unity $VERSION, building with $UNITY_BIN" >&2
+       echo "         Unity will upgrade the project to this version (ProjectSettings/ProjectVersion.txt changes)." >&2 ;;
+esac
 
 # The Windows editor (through WSL interop) wants Windows-style paths.
 PROJECT_ARG="$ROOT"

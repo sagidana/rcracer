@@ -16,11 +16,23 @@ if not exist "%ROOT%\Build" mkdir "%ROOT%\Build"
 
 for /f "tokens=2" %%v in ('findstr /b "m_EditorVersion:" "%ROOT%\ProjectSettings\ProjectVersion.txt"') do set VERSION=%%v
 
-if "%UNITY%"=="" set UNITY=C:\Program Files\Unity\Hub\Editor\%VERSION%\Editor\Unity.exe
+set HUB=C:\Program Files\Unity\Hub\Editor
+if "%UNITY%"=="" set UNITY=%HUB%\%VERSION%\Editor\Unity.exe
 if not exist "%UNITY%" (
-    echo Unity %VERSION% not found at "%UNITY%".
+    rem exact version missing: fall back to the newest installed editor of the same major version
+    for /f "tokens=1 delims=." %%m in ("%VERSION%") do set MAJOR=%%m
+    for /f "delims=" %%d in ('dir /b /ad /o-n "%HUB%\%MAJOR%.*" 2^>nul') do (
+        if exist "%HUB%\%%d\Editor\Unity.exe" set UNITY=%HUB%\%%d\Editor\Unity.exe
+    )
+)
+if not exist "%UNITY%" (
+    echo Unity %VERSION% not found under "%HUB%".
     echo Install it with Unity Hub, or:  set UNITY=C:\path\to\Unity.exe
     exit /b 1
+)
+echo %UNITY% | findstr /c:"\%VERSION%\" >nul || (
+    echo WARNING: project was made with Unity %VERSION%, building with "%UNITY%".
+    echo          Unity will upgrade the project to this version.
 )
 
 echo Unity:   %UNITY%
