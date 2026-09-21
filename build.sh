@@ -4,19 +4,25 @@
 #   ./build.sh                 -> Build/Windows/RCRACE.exe
 #   ./build.sh /some/out/dir   -> <dir>/RCRACE.exe
 #   UNITY=/path/to/Unity ./build.sh   (override editor autodetect)
+#   STAGE=/mnt/c/some/dir ./build.sh  (override the Windows-side staging folder, see below)
 #
-# Finds the Unity editor that matches ProjectSettings/ProjectVersion.txt:
+# Finds the Unity editor that matches ProjectSettings/ProjectVersion.txt (or, with a warning,
+# the newest installed editor of the same major version):
 #   1. $UNITY if set
 #   2. Linux editor from Unity Hub:  ~/Unity/Hub/Editor/<version>/Editor/Unity
 #   3. Windows editor through WSL interop: /mnt/c/Program Files/Unity/Hub/Editor/<version>/Editor/Unity.exe
 # The editor needs the "Windows Build Support (Mono)" module installed from Unity Hub.
+#
+# Windows editor + repo inside the WSL filesystem: Unity.exe refuses case-sensitive filesystems
+# (and \\wsl.localhost is slow), so the project is first synced to a folder on the Windows drive
+# (default %LOCALAPPDATA%\RCRACE-build), built there with a cached Library/, and the result copied back.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="${1:-$ROOT/Build/Windows}"
 VERSION="$(sed -n 's/^m_EditorVersion: //p' "$ROOT/ProjectSettings/ProjectVersion.txt" | tr -d '\r')"
 LOG="$ROOT/Build/build.log"
-mkdir -p "$ROOT/Build"
+mkdir -p "$ROOT/Build" "$OUT"
 
 LINUX_HUB="$HOME/Unity/Hub/Editor"
 WIN_HUB="/mnt/c/Program Files/Unity/Hub/Editor"
@@ -49,24 +55,51 @@ case "$UNITY_BIN" in
        echo "         Unity will upgrade the project to this version (ProjectSettings/ProjectVersion.txt changes)." >&2 ;;
 esac
 
-# The Windows editor (through WSL interop) wants Windows-style paths.
-PROJECT_ARG="$ROOT"
-OUT_ARG="$OUT"
-LOG_ARG="$LOG"
+# ---- where does Unity see the project? ----
+PROJECT="$ROOT"          # folder Unity opens (Linux path)
+BUILD_DIR="$OUT"         # folder Unity writes the player to (Linux path)
+STAGED=0
 case "$UNITY_BIN" in
     *.exe)
-        mkdir -p "$OUT"
-        PROJECT_ARG="$(wslpath -w "$ROOT")"
-        OUT_ARG="$(wslpath -w "$OUT")"
-        LOG_ARG="$(wslpath -w "$LOG")"
+        case "$ROOT" in
+            /mnt/*) ;;   # already on a Windows drive: build in place
+            *)
+                STAGED=1
+                if [ -z "${STAGE:-}" ]; then
+                    LOCALAPPDATA_WIN="$(cmd.exe /c 'echo %LOCALAPPDATA%' 2>/dev/null | tr -d '\r')"
+                    STAGE="$(wslpath -u "$LOCALAPPDATA_WIN")/RCRACE-build"
+                fi
+                PROJECT="$STAGE/project"
+                BUILD_DIR="$STAGE/Build/Windows"
+                command -v rsync >/dev/null || { echo "rsync is needed to stage the project on the Windows drive: sudo apt install rsync" >&2; exit 1; }
+                echo "Staging project to $PROJECT (Unity.exe cannot open projects on the WSL filesystem)"
+                mkdir -p "$PROJECT" "$BUILD_DIR"
+                for d in Assets Packages ProjectSettings; do
+                    rsync -a --delete "$ROOT/$d/" "$PROJECT/$d/"
+                done
+                ;;
+        esac
+        ;;
+esac
+
+UNITY_LOG="$LOG"                                   # where Unity writes its log (Linux path)
+[ "$STAGED" = 1 ] && UNITY_LOG="$STAGE/build.log"
+: > "$UNITY_LOG"
+PROJECT_ARG="$PROJECT"
+OUT_ARG="$BUILD_DIR"
+LOG_ARG="$UNITY_LOG"
+case "$UNITY_BIN" in
+    *.exe)
+        PROJECT_ARG="$(wslpath -w "$PROJECT")"
+        OUT_ARG="$(wslpath -w "$BUILD_DIR")"
+        LOG_ARG="$(wslpath -w "$UNITY_LOG")"
         ;;
 esac
 
 echo "Unity:   $UNITY_BIN"
 echo "Project: $PROJECT_ARG"
 echo "Output:  $OUT_ARG"
-echo "Log:     $LOG"
-echo "Building (this takes a few minutes the first time)..."
+echo "Building (the first run imports every asset and takes several minutes)..."
 
 set +e
 "$UNITY_BIN" -batchmode -nographics -quit \
@@ -77,7 +110,15 @@ set +e
 STATUS=$?
 set -e
 
-grep -E 'BUILD (OK|FAILED)|error CS|Error building' "$LOG" || true
+if [ "$STAGED" = 1 ]; then
+    cp -f "$UNITY_LOG" "$LOG"
+    if [ "$STATUS" -eq 0 ]; then
+        rsync -a --delete "$BUILD_DIR/" "$OUT/"
+    fi
+fi
+
+echo "Log:     $LOG"
+grep -E 'BUILD (OK|FAILED)|error CS|Error building|Fatal Error' "$LOG" || true
 if [ "$STATUS" -ne 0 ]; then
     echo "Build failed (exit $STATUS). See $LOG" >&2
     exit "$STATUS"

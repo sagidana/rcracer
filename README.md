@@ -102,8 +102,12 @@ The script looks for the matching editor in this order:
 2. Linux editor from Unity Hub: `~/Unity/Hub/Editor/6000.3.24f1/Editor/Unity`
 3. Windows editor through WSL interop: `/mnt/c/Program Files/Unity/Hub/Editor/6000.3.24f1/Editor/Unity.exe`
 
-The Linux editor is the straightforward option. Using the Windows editor from WSL works too, but it is faster
-when the repo lives on a Windows drive (e.g. `/mnt/c/...`) rather than inside the WSL filesystem.
+With the Windows editor and a repo inside the WSL filesystem (`/home/...`), Unity.exe cannot open the project
+directly: it refuses case-sensitive filesystems, and `\\wsl.localhost` is slow anyway. The script handles this by
+syncing `Assets/`, `Packages/` and `ProjectSettings/` to a staging folder on the Windows drive
+(`%LOCALAPPDATA%\RCRACE-build`, override with `STAGE=/mnt/c/...`), building there with a cached `Library/`
+(so later builds are much faster), and copying the result back to `Build/Windows/`. Needs `rsync`
+(`sudo apt install rsync`). A repo checked out under `/mnt/c/...`, or the Linux editor, builds in place.
 
 The full editor log is written to `Build/build.log`.
 
