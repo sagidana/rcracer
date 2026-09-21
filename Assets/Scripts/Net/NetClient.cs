@@ -65,12 +65,7 @@ public class NetClient : MonoBehaviour
 
     readonly Dictionary<byte, RemoteCarView> remotes = new Dictionary<byte, RemoteCarView>();
 
-    // DIAG
-    public float LastCorrectionDistance;
-    public int LastReplayTicks;
-    public float WorstCorrection;
-    public int WorstCorrectionTicks;
-    public readonly List<string> CorrectionLog = new List<string>();
+    Vector3 pendingCorrection;   // position difference still being fed in (see ApplyPendingCorrection)
 
     // the isolated physics world the unconfirmed ticks are re-simulated in (see NetPredictor)
     NetPredictor predictor;
@@ -169,6 +164,8 @@ public class NetClient : MonoBehaviour
     void FixedUpdate()
     {
         if (socket == null || !welcomed) return;
+
+        ApplyPendingCorrection();
 
         bool reset = false;
         if (localInput != null && localInput.PeekReset())
@@ -347,18 +344,41 @@ public class NetClient : MonoBehaviour
 
         float dist = Vector3.Distance(localRb.position, pos);
         float angle = Quaternion.Angle(localRb.rotation, rot);
-        LastCorrectionDistance = dist;
-        LastReplayTicks = unconfirmed.Count;
-        if (dist > WorstCorrection) { WorstCorrection = dist; WorstCorrectionTicks = unconfirmed.Count; }
-        CorrectionLog.Add(dist.ToString("F3") + "m ticks=" + unconfirmed.Count + " speed=" + localRb.linearVelocity.magnitude.ToString("F1"));
-        if (CorrectionLog.Count > 400) CorrectionLog.RemoveAt(0);
         if (dist <= NetConfig.ReplayDeadZone && angle <= NetConfig.ReplayDeadZoneAngle) return;
 
-        localRb.position = pos;
         localRb.rotation = rot;
         localRb.linearVelocity = vel;
         localRb.angularVelocity = angVel;
-        localCar.transform.SetPositionAndRotation(pos, rot);   // AutoSyncTransforms is off in this project
+
+        // Far enough out that gliding there would be its own spectacle (a missed collision, a respawn,
+        // a long dropout): take it at once and be done.
+        if (dist > NetConfig.HardSnapDistance)
+        {
+            pendingCorrection = Vector3.zero;
+            localRb.position = pos;
+            localCar.transform.SetPositionAndRotation(pos, rot);   // AutoSyncTransforms is off in this project
+            return;
+        }
+
+        pendingCorrection = pos - localRb.position;
+        localCar.transform.rotation = rot;
+    }
+
+    // Feeds the outstanding position correction in over CorrectionSmoothing rather than all at once.
+    // The car is already driving on the corrected velocity and heading by this point, so this is only
+    // closing the remaining gap - it is applied per physics tick, on top of the car's own motion.
+    void ApplyPendingCorrection()
+    {
+        if (pendingCorrection == Vector3.zero || localRb == null) return;
+
+        float k = 1f - Mathf.Exp(-Time.fixedDeltaTime / NetConfig.CorrectionSmoothing);
+        Vector3 step = pendingCorrection * k;
+        if (step.magnitude < 0.0005f) step = pendingCorrection;   // close enough: finish it rather than creep forever
+        pendingCorrection -= step;
+
+        Vector3 moved = localRb.position + step;
+        localRb.position = moved;
+        localCar.transform.position = moved;
     }
 
     RemoteCarView SpawnRemote(byte carIndex)

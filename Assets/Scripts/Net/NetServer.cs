@@ -31,8 +31,6 @@ public class NetServer : MonoBehaviour
         public readonly SortedDictionary<uint, NetProtocol.InputSample> pending = new SortedDictionary<uint, NetProtocol.InputSample>();
         public int minPending = int.MaxValue;   // shallowest the queue got since the last drain check
         public float nextDrainCheck;
-        public int coastSteps;    // DIAG: physics steps taken with no input available
-        public int droppedTicks;  // DIAG: input ticks discarded by the drain/cap
     }
 
     // How deep the pending queue should sit. Some backlog is required, not merely tolerated: an input
@@ -124,7 +122,7 @@ public class NetServer : MonoBehaviour
         // nothing queued: the next packet has not arrived yet, so hold the controls the player last
         // had. lastAppliedSeq deliberately does NOT advance - this tick was the server's guess, not
         // the player's input, so the client must keep it unconfirmed.
-        if (!have) { p.coastSteps++; return; }
+        if (!have) return;
 
         NetProtocol.InputSample s = p.pending[next];
         p.pending.Remove(next);
@@ -152,7 +150,6 @@ public class NetServer : MonoBehaviour
     // server's own state can never reflect.
     void DropOldest(Player p)
     {
-        p.droppedTicks++;
         uint oldest = 0;
         foreach (uint seq in p.pending.Keys) { oldest = seq; break; }
         p.pending.Remove(oldest);
