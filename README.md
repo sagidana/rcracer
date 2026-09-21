@@ -111,6 +111,11 @@ syncing `Assets/`, `Packages/` and `ProjectSettings/` to a staging folder on the
 
 The full editor log is written to `Build/build.log`.
 
+To play a build that lives inside the WSL filesystem, run the copy the script leaves on the Windows drive
+(it prints the path, e.g. `/mnt/c/Users/<you>/AppData/Local/RCRACE-build/Build/Windows/RCRACE.exe`), or zip
+`Build/Windows` and unpack it on a Windows drive. Launching the exe through `\\wsl.localhost\...` fails with
+"dstorage.dll was not found" because Windows does not load the DLLs next to the exe from that network path.
+
 ### Editor version
 
 Both scripts look for the exact version in `ProjectSettings/ProjectVersion.txt` first. If it is missing they fall back

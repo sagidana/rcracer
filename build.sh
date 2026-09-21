@@ -124,3 +124,7 @@ if [ "$STATUS" -ne 0 ]; then
     exit "$STATUS"
 fi
 echo "Done: $OUT/RCRACE.exe  (zip the whole $OUT folder to share it)"
+if [ "$STAGED" = 1 ]; then
+    echo "Run it from the Windows drive, not through \\\\wsl.localhost (DLLs next to the exe do not load from there):"
+    echo "  \"$BUILD_DIR/RCRACE.exe\""
+fi
