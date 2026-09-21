@@ -20,20 +20,12 @@ public class CarInput : MonoBehaviour
     // Set by NetServer for a car it owns: input then comes from the network instead of a local
     // keyboard/gamepad, so a dedicated server (no display, no local player) can still drive the car.
     [System.NonSerialized] public bool NetworkControlled;
-    float netThrottle, netSteer;
-    bool netHandbrake;
 
     bool resetPressed;
 
     void Update()
     {
-        if (NetworkControlled)
-        {
-            Throttle = netThrottle;
-            Steer = netSteer;
-            Handbrake = netHandbrake;
-            return;
-        }
+        if (NetworkControlled) return;   // SetNetworkInput() already wrote Throttle/Steer/Handbrake directly
 
         float t = 0f, s = 0f;
         bool handbrake = false;
@@ -77,12 +69,17 @@ public class CarInput : MonoBehaviour
         return Mathf.Sign(v) * (a - stickDeadzone) / (1f - stickDeadzone);
     }
 
-    // NetServer calls this once per received Input packet for a network-controlled car.
+    // NetServer calls this once per received Input packet for a network-controlled car, and
+    // NetPredictor calls it once per buffered input during a replay - the latter runs many of these
+    // back-to-back inside a single frame with no Update() in between, so this must take effect
+    // immediately rather than waiting for Update() to copy it over (as an earlier, buffered version of
+    // this method did - it worked for NetServer only because a real frame's Update() always runs
+    // before that frame's FixedUpdate).
     public void SetNetworkInput(float throttle, float steer, bool handbrake, bool reset)
     {
-        netThrottle = Mathf.Clamp(throttle, -1f, 1f);
-        netSteer = Mathf.Clamp(steer, -1f, 1f);
-        netHandbrake = handbrake;
+        Throttle = Mathf.Clamp(throttle, -1f, 1f);
+        Steer = Mathf.Clamp(steer, -1f, 1f);
+        Handbrake = handbrake;
         if (reset) resetPressed = true;
     }
 

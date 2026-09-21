@@ -88,11 +88,20 @@ public class CarController : MonoBehaviour
 
     void Start()
     {
+        InitializePhysics();
+        Camera cam = Camera.main;
+        if (cam != null) follow = cam.GetComponent<FollowCamera>();
+    }
+
+    // Body mass/drag, wheel mount positions and the collision material - everything Start() sets up
+    // before the car can drive correctly. A shadow car (see NetPredictor) is replayed the instant it
+    // is created, with no frame in between for Unity's own Start() to have fired yet, so it calls
+    // this directly instead of waiting for it.
+    public void InitializePhysics()
+    {
         ApplyBodySettings();
         PlaceMounts();
         ApplyCollisionMaterial();
-        Camera cam = Camera.main;
-        if (cam != null) follow = cam.GetComponent<FollowCamera>();
     }
 
     // Awake() caches physicsScene from gameObject.scene, which is only correct if the object is
@@ -165,7 +174,14 @@ public class CarController : MonoBehaviour
     // ------------------------------------------------------------------
     void FixedUpdate()
     {
-        float dt = Time.fixedDeltaTime;
+        Tick(Time.fixedDeltaTime);
+    }
+
+    // The whole physics step, extracted out of FixedUpdate so a replay (see NetPredictor) can drive
+    // it by hand once per buffered input instead of relying on Unity's automatic FixedUpdate loop,
+    // which never fires for a manually-stepped PhysicsScene.
+    public void Tick(float dt)
+    {
         lastVelocity = rb.linearVelocity;
         lastAngularVelocity = rb.angularVelocity;
 
