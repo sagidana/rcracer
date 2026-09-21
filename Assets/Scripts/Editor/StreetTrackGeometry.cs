@@ -54,10 +54,43 @@ public static partial class StreetTrackBuilder
         {"bannerRed", new Color(0.85f, 0.1f, 0.1f)},
     };
 
+    // per-surface smoothness (0 = fully matte, 1 = mirror-like) so asphalt, paint, glass and dirt don't all look
+    // like the same plastic. Missing keys fall back to a low, safe default.
+    internal static readonly Dictionary<string, float> Smoothness = new Dictionary<string, float>
+    {
+        {"asphalt", 0.35f}, {"lineYellow", 0.4f}, {"lineWhite", 0.4f}, {"black", 0.3f},
+        {"curb", 0.25f}, {"sidewalk", 0.18f}, {"grass", 0.05f}, {"lawn", 0.08f},
+        {"pathway", 0.15f}, {"shortcut", 0.1f}, {"hedge", 0.05f}, {"ramp", 0.5f},
+        {"fence", 0.35f}, {"post", 0.4f}, {"glass", 0.85f}, {"frame", 0.6f}, {"chimney", 0.2f},
+        {"wall0", 0.25f}, {"wall1", 0.25f}, {"wall2", 0.25f}, {"wall3", 0.25f}, {"wall4", 0.25f}, {"wall5", 0.25f},
+        {"roof0", 0.3f}, {"roof1", 0.35f}, {"roof2", 0.3f}, {"roof3", 0.35f},
+        {"door0", 0.4f}, {"door1", 0.4f}, {"door2", 0.4f},
+        {"trashGreen", 0.3f}, {"trashGrey", 0.3f}, {"trashLid", 0.3f},
+        {"mailBlue", 0.45f}, {"mailRed", 0.45f}, {"cone", 0.35f}, {"coneBase", 0.2f}, {"tire", 0.12f},
+        {"carGlass", 0.9f}, {"carRed", 0.55f}, {"carBlue", 0.55f}, {"carYellow", 0.55f}, {"carGreen", 0.55f},
+        {"lightY", 0.6f}, {"lightR", 0.6f}, {"bannerRed", 0.3f},
+        {"sand", 0.08f}, {"dirt", 0.1f}, {"shoulder", 0.12f}, {"berm", 0.08f},
+        {"rock", 0.18f}, {"rock2", 0.18f}, {"cactus", 0.12f}, {"rumbleRed", 0.35f},
+    };
+
     internal static Material MakeMat(Color c)
     {
+        return MakeMatWithSmoothness(c, 0.15f);
+    }
+
+    internal static Material MakeMat(string key, Color c)
+    {
+        float s;
+        if (!Smoothness.TryGetValue(key, out s)) s = 0.15f;
+        return MakeMatWithSmoothness(c, s);
+    }
+
+    static Material MakeMatWithSmoothness(Color c, float smoothness)
+    {
         Material m = RaceSceneSetup.MakeMaterial(c);
-        if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", 0.15f);
+        if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", smoothness);
+        // a light metallic hint on car-paint colors reads as glossy paint rather than plastic
+        if (m.HasProperty("_Metallic") && smoothness >= 0.5f) m.SetFloat("_Metallic", 0.15f);
         return m;
     }
 
@@ -195,7 +228,7 @@ public static partial class StreetTrackBuilder
                 if (kv.Value.verts.Count == 0) continue;
                 Color c;
                 if (!Palette.TryGetValue(kv.Key, out c)) c = Color.magenta;
-                MakeMeshObject("Batch_" + kv.Key, parent, kv.Value, MakeMat(c), false);
+                MakeMeshObject("Batch_" + kv.Key, parent, kv.Value, MakeMat(kv.Key, c), false);
             }
         }
     }

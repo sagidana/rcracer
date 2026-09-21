@@ -35,7 +35,7 @@ public static partial class StreetTrackBuilder
         {
             Color c;
             if (!Palette.TryGetValue(key, out c)) c = Color.magenta;
-            m = MakeMat(c);
+            m = MakeMat(key, c);
             propMaterials[key] = m;
         }
         return m;

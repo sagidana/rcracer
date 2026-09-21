@@ -99,6 +99,13 @@ public static class CarPrefabBuilder
                     AssetDatabase.CreateAsset(m, file);
                     existing = m;
                 }
+                else
+                {
+                    // re-running this always syncs the asset to the current in-memory conversion (colors,
+                    // smoothness, transparency), so a later tweak to CarModelSwitcher.ToUrp takes effect
+                    // on a rebuild instead of being stuck with whatever was saved the first time.
+                    EditorUtility.CopySerialized(m, existing);
+                }
                 mats[i] = existing;
                 changed = true;
             }

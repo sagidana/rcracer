@@ -227,7 +227,7 @@ public static partial class StreetTrackBuilder
                     hedge.Quad(ej, ej + h, ej + h + nJ * 1.0f, ej + nJ * 1.0f, cut.fwd[j]);
             }
         }
-        MakeMeshObject("ShortcutHedges", root, hedge, MakeMat(Palette["hedge"]), true);
+        MakeMeshObject("ShortcutHedges", root, hedge, MakeMat("hedge", Palette["hedge"]), true);
 
         // a ramp in the middle (yellow), a huge trash can and a mailbox make it risky
         int ir = Mathf.RoundToInt((n - 1) * 0.55f);
@@ -249,6 +249,6 @@ public static partial class StreetTrackBuilder
         float y = length * 0.5f * Mathf.Sin(rad) - thickness * 0.5f * Mathf.Cos(rad);
         ramp.transform.localPosition = new Vector3(p.x, y + 0.05f, p.z);
         ramp.transform.localRotation = Quaternion.LookRotation(fwd, Vector3.up) * Quaternion.Euler(-angle, 0f, 0f);
-        ramp.GetComponent<Renderer>().sharedMaterial = MakeMat(Palette["ramp"]);
+        ramp.GetComponent<Renderer>().sharedMaterial = MakeMat("ramp", Palette["ramp"]);
     }
 }

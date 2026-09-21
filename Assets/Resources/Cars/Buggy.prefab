@@ -560,6 +560,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2fc1d7d27c02bc74890694e7a86ff129, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CarInput
+  stickDeadzone: 0.12
 --- !u!114 &8249434001551343911
 MonoBehaviour:
   m_ObjectHideFlags: 0

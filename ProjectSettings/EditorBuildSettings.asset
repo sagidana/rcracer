@@ -12,6 +12,9 @@ EditorBuildSettings:
     path: Assets/Scenes/Track_Street.unity
     guid: db51667bd618f2a4fb1fa88ccd3e3228
   - enabled: 1
+    path: Assets/Scenes/Track_Desert.unity
+    guid: e75b1b43e8201b947949287b0f8db1be
+  - enabled: 1
     path: Assets/Scenes/Track_Test.unity
     guid: 9d91a75b16acc4d4d9ef9779f52ebc5a
   m_configObjects:

@@ -161,7 +161,7 @@ public static partial class StreetTrackBuilder
         ground.transform.SetParent(root, false);
         ground.transform.localScale = new Vector3(sx + 1600f, 1f, sz + 1600f);
         ground.transform.localPosition = new Vector3(center.x, -0.5f, center.z);
-        ground.GetComponent<Renderer>().sharedMaterial = MakeMat(Palette["grass"]);
+        ground.GetComponent<Renderer>().sharedMaterial = MakeMat("grass", Palette["grass"]);
 
         float margin = 140f, t = 4f, hgt = 60f;
         float wx = sx + margin * 2f + t * 2f, wz = sz + margin * 2f + t * 2f;

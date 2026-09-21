@@ -286,8 +286,11 @@ public static class CarModelSwitcher
         Color col = src.HasProperty("_Color") ? src.GetColor("_Color") : Color.white;
         if (tex != null) m.SetTexture("_BaseMap", tex);
         m.SetColor("_BaseColor", col);
-        m.SetFloat("_Smoothness", 0.25f);
-        if (src.HasProperty("_Mode") && src.GetFloat("_Mode") >= 2f) // glass / transparent
+        bool isGlass = (src.HasProperty("_Mode") && src.GetFloat("_Mode") >= 2f) || src.name.ToLower().Contains("glass");
+        // glossy paint rather than flat plastic; glass gets close to a mirror finish
+        m.SetFloat("_Smoothness", isGlass ? 0.92f : 0.45f);
+        if (m.HasProperty("_Metallic")) m.SetFloat("_Metallic", isGlass ? 0f : 0.12f);
+        if (isGlass)
         {
             m.SetFloat("_Surface", 1f);
             m.SetFloat("_Blend", 0f);
